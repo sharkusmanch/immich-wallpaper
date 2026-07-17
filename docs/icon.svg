@@ -1,0 +1,23 @@
+<svg width="512" height="512" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#4A5ACB"/>
+      <stop offset="1" stop-color="#2E3A96"/>
+    </linearGradient>
+    <clipPath id="front"><rect x="-92" y="-70" width="184" height="140" rx="14"/></clipPath>
+  </defs>
+  <rect width="512" height="512" rx="116" fill="url(#bg)"/>
+  <!-- back photo, mid-rotation -->
+  <g transform="translate(268 244) rotate(-10)">
+    <rect x="-92" y="-70" width="184" height="140" rx="14" fill="#FFFFFF" opacity="0.38"/>
+  </g>
+  <!-- front photo -->
+  <g transform="translate(248 272) rotate(4)">
+    <rect x="-92" y="-70" width="184" height="140" rx="14" fill="#FFFFFF"/>
+    <g clip-path="url(#front)">
+      <circle cx="-38" cy="-22" r="20" fill="#FFB400"/>
+      <path d="M-92,70 L-92,34 L-30,-28 L14,16 L44,-14 L92,34 L92,70 Z" fill="#4250AF"/>
+      <path d="M-92,70 L-92,52 L-48,14 L4,58 L28,36 L92,70 Z" fill="#27337F"/>
+    </g>
+  </g>
+</svg>

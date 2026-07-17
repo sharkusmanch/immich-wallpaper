@@ -1,8 +1,24 @@
-# Immich Wallpaper
+<p align="center">
+  <img src="docs/icon.png" width="128" alt="Immich Wallpaper icon">
+</p>
 
-An Android **live wallpaper** for self-hosted [Immich](https://immich.app) libraries:
-pick people, albums, searches or date ranges from your library, and your lock and home
-screen show a different photo every time you wake the phone.
+<h1 align="center">Immich Wallpaper</h1>
+
+<p align="center">
+  <img alt="Android 14+" src="https://img.shields.io/badge/Android-14%2B-3DDC84?logo=android&logoColor=white">
+  <img alt="Immich v3.0+" src="https://img.shields.io/badge/Immich-v3.0%2B-4250AF?logo=immich&logoColor=white">
+  <img alt="License: Apache-2.0" src="https://img.shields.io/badge/license-Apache--2.0-blue">
+</p>
+
+An Android **live wallpaper** for self-hosted photo libraries: pick people, albums,
+searches or date ranges from your library, and your lock and home screen show a
+different photo every time you wake the phone.
+
+> [!IMPORTANT]
+> This app is a companion for **[Immich](https://github.com/immich-app/immich)** — the
+> wonderful self-hosted photo and video management platform. It requires a running
+> Immich server; if you aren't self-hosting your photos yet,
+> [start there](https://immich.app). Your library will thank you.
 
 ## How it works
 
@@ -17,18 +33,6 @@ each time the screen turns off.
 Syncs run a few times a day (configurable), on Wi-Fi only by default or also over
 mobile data if you enable it. Between syncs the wallpaper rotates entirely from the
 on-device cache, so it keeps working with no connection at all.
-
-## Server requirement: Immich v3.0+
-
-**This app requires an Immich server running v3.0 or newer** (developed and tested
-against v3.0.3). It will not work with older servers: the v3 API moved face data to its
-own endpoint (`/api/faces`), removed the old random-asset and album-contents routes in
-favor of the unified search API, and changed several response shapes this app depends
-on. If your server is on 1.x/2.x, update it first.
-
-The API key needs read access to assets, people, faces, albums, memories and downloads.
-The setup wizard probes each scope and names exactly which one is missing if
-validation fails.
 
 ## Features
 
@@ -57,13 +61,24 @@ validation fails.
 
 ## Requirements
 
-- Android 14 or newer
-- Immich server v3.0+ with an API key (see above)
+- **Android 14 or newer**
+- **An Immich server, v3.0 or newer** — see below
+
+### Immich server (v3.0+)
+
+Developed and tested against Immich **v3.0.3**. Older servers (1.x/2.x) will not work:
+the v3 API moved face data to its own endpoint (`/api/faces`), removed the old
+random-asset and album-contents routes in favor of the unified search API, and changed
+several response shapes this app depends on. If your server is older, update it first.
+
+You'll also need an **API key** (Immich → Account settings → API keys) with read access
+to assets, people, faces, albums, memories and downloads. The setup wizard probes each
+scope and names exactly which one is missing if validation fails.
 
 ## Building
 
 ```bash
-git clone <this repo>
+git clone https://github.com/SONDLecT/immich-wallpaper.git
 cd immich-wallpaper
 JAVA_HOME=/path/to/jdk17 ./gradlew assembleDebug
 # APK lands in app/build/outputs/apk/debug/app-debug.apk
