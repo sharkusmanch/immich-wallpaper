@@ -75,7 +75,14 @@ You'll also need an **API key** (Immich → Account settings → API keys) with 
 to assets, people, faces, albums, memories and downloads. The setup wizard probes each
 scope and names exactly which one is missing if validation fails.
 
-## Building
+## Install
+
+Grab the latest APK from the
+[Releases page](https://github.com/SONDLecT/immich-wallpaper/releases) and sideload it
+(`adb install immich-wallpaper-x.y.z.apk`, or open the file on the phone). Android
+will warn about unknown sources — that's normal for sideloaded apps.
+
+## Building from source
 
 ```bash
 git clone https://github.com/SONDLecT/immich-wallpaper.git
@@ -94,10 +101,7 @@ immich.api.key=<your api key>
 ```
 
 > ⚠️ **Don't share debug APKs built with a populated `local.properties`** — the server
-> URL and API key are baked into the binary. Share the source, or build with those
-> fields empty.
-
-`./update-phone.sh` builds and installs onto a USB-connected phone in one step.
+> URL and API key are baked into the binary. Release builds never include them.
 
 ## Setup on the phone
 

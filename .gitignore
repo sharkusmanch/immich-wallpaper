@@ -6,3 +6,4 @@ build/
 .claude/
 .kotlin/
 emulator_gui.log
+update-phone.sh

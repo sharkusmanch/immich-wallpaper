@@ -23,14 +23,35 @@ android {
         minSdk = 34
         targetSdk = 35
         versionCode = 1
-        versionName = "1.0"
+        versionName = "1.0.0"
 
         buildConfigField("String", "DEV_SERVER_URL", "\"${devServerUrl}\"")
         buildConfigField("String", "DEV_API_KEY", "\"${devApiKey}\"")
     }
 
+    // Optional release signing, read from local.properties (never committed):
+    //   release.store.file=release.keystore
+    //   release.store.password=...
+    //   release.key.alias=...
+    //   release.key.password=...
+    // Absent → the release build is simply unsigned (still buildable by anyone).
+    val releaseStoreFile: String = localProps.getProperty("release.store.file", "") ?: ""
+    if (releaseStoreFile.isNotBlank()) {
+        signingConfigs {
+            create("release") {
+                storeFile = rootProject.file(releaseStoreFile)
+                storePassword = localProps.getProperty("release.store.password", "")
+                keyAlias = localProps.getProperty("release.key.alias", "")
+                keyPassword = localProps.getProperty("release.key.password", "")
+            }
+        }
+    }
+
     buildTypes {
         release {
+            if (releaseStoreFile.isNotBlank()) {
+                signingConfig = signingConfigs.getByName("release")
+            }
             isMinifyEnabled = true
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
