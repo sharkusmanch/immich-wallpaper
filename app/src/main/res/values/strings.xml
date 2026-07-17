@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Immich Wallpaper</string>
+    <string name="wallpaper_label">Immich Wallpaper</string>
+    <string name="wallpaper_description">A new photo from your Immich library on every screen wake, on both lock and home screen.</string>
+</resources>

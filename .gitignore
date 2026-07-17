@@ -1,0 +1,8 @@
+local.properties
+.gradle/
+build/
+*.keystore
+*.apk
+.claude/
+.kotlin/
+emulator_gui.log

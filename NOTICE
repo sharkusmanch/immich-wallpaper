@@ -1,0 +1,8 @@
+Immich Wallpaper
+
+The visible-change crossfade approach (two-layer alpha blend driven by a wall-clock
+eased animator, immediate swap when not visible) is modeled on Muzei
+(https://github.com/muzei/muzei), Copyright Google Inc., licensed under the
+Apache License, Version 2.0. No Muzei source code is included in this project.
+
+This project is not affiliated with or endorsed by Immich.

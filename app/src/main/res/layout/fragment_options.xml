@@ -1,0 +1,192 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:fillViewport="true">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="24dp">
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/options_title"
+            android:textSize="24sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="24dp"
+            android:text="@string/options_cache_heading"
+            android:textSize="16sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/options_cache_value"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:textColor="?android:attr/textColorSecondary"
+            android:textSize="14sp" />
+
+        <com.google.android.material.slider.Slider
+            android:id="@+id/options_cache_slider"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:stepSize="10"
+            android:value="150"
+            android:valueFrom="50"
+            android:valueTo="300" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="24dp"
+            android:text="@string/options_rotation_heading"
+            android:textSize="16sp"
+            android:textStyle="bold" />
+
+        <RadioGroup
+            android:id="@+id/options_rotation_group"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:orientation="vertical">
+
+            <RadioButton
+                android:id="@+id/options_rotation_wake"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/options_rotation_wake" />
+
+            <RadioButton
+                android:id="@+id/options_rotation_5m"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/options_rotation_5m" />
+
+            <RadioButton
+                android:id="@+id/options_rotation_1h"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/options_rotation_1h" />
+
+            <RadioButton
+                android:id="@+id/options_rotation_6h"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/options_rotation_6h" />
+
+            <RadioButton
+                android:id="@+id/options_rotation_1d"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/options_rotation_1d" />
+        </RadioGroup>
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="2dp"
+            android:text="@string/options_rotation_desc"
+            android:textColor="?android:attr/textColorSecondary"
+            android:textSize="13sp" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="24dp"
+            android:text="@string/options_interval_heading"
+            android:textSize="16sp"
+            android:textStyle="bold" />
+
+        <RadioGroup
+            android:id="@+id/options_interval_group"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:orientation="vertical">
+
+            <RadioButton
+                android:id="@+id/options_interval_3"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/options_hours_3" />
+
+            <RadioButton
+                android:id="@+id/options_interval_6"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/options_hours_6" />
+
+            <RadioButton
+                android:id="@+id/options_interval_12"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/options_hours_12" />
+
+            <RadioButton
+                android:id="@+id/options_interval_24"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/options_hours_24" />
+        </RadioGroup>
+
+        <com.google.android.material.switchmaterial.SwitchMaterial
+            android:id="@+id/options_cellular_switch"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="24dp"
+            android:text="@string/options_cellular" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:text="@string/options_cellular_desc"
+            android:textColor="?android:attr/textColorSecondary"
+            android:textSize="13sp" />
+
+        <com.google.android.material.switchmaterial.SwitchMaterial
+            android:id="@+id/options_quality_switch"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="24dp"
+            android:text="@string/options_quality" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:text="@string/options_quality_desc"
+            android:textColor="?android:attr/textColorSecondary"
+            android:textSize="13sp" />
+
+
+        <com.google.android.material.switchmaterial.SwitchMaterial
+            android:id="@+id/options_theme_switch"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="24dp"
+            android:text="@string/options_theme" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:text="@string/options_theme_desc"
+            android:textColor="?android:attr/textColorSecondary"
+            android:textSize="13sp" />
+
+        <Button
+            android:id="@+id/options_continue"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="32dp"
+            android:text="@string/options_continue" />
+    </LinearLayout>
+</ScrollView>

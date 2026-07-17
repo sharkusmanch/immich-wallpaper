@@ -1,0 +1,533 @@
+package dev.immichwall.settings
+
+import android.content.Context
+import android.content.SharedPreferences
+import android.os.Looper
+import android.os.SystemClock
+import androidx.security.crypto.EncryptedSharedPreferences
+import androidx.security.crypto.MasterKey
+import dev.immichwall.api.ApiJson
+import dev.immichwall.source.SavedCycle
+import dev.immichwall.source.SourceSpec
+import dev.immichwall.util.Logg
+import javax.crypto.AEADBadTagException
+
+/**
+ * Process-wide settings store. The API key lives in EncryptedSharedPreferences;
+ * everything else is plain SharedPreferences. [SourceSpec] is persisted as JSON
+ * via [ApiJson.json]. Writes use commit() — they are rare and several are read
+ * immediately afterwards by workers/services.
+ */
+class SettingsRepository private constructor(ctx: Context) {
+
+    private val appCtx: Context = ctx.applicationContext
+
+    private val plain: SharedPreferences =
+        appCtx.getSharedPreferences(PLAIN_PREFS, Context.MODE_PRIVATE)
+
+    private val secureLock = Any()
+
+    @Volatile
+    private var secureStore: SharedPreferences? = null
+
+    /** Served while the Keystore is unavailable; in-memory only, see [InMemoryPrefs]. */
+    private val memoryFallback: SharedPreferences by lazy { InMemoryPrefs() }
+
+    /** True once [memoryFallback] has been served — its values may need migrating. */
+    @Volatile
+    private var fallbackServed = false
+
+    /** elapsedRealtime of the last failed secure-store open; 0 = never failed. */
+    @Volatile
+    private var lastSecureFailureAt = 0L
+
+    /**
+     * Lazy on purpose: EncryptedSharedPreferences setup does Keystore + disk work
+     * (100-300ms, more on first master-key generation) and the wallpaper process never
+     * reads the API key, so process start must not pay for it. A transient Keystore
+     * failure serves [memoryFallback] WITHOUT caching it, so a later access retries the
+     * real store (e.g. once the user has unlocked) — but only after a short cooldown,
+     * so per-request readers (the API-key header lambda) don't re-pay the full
+     * attempt-sleep-retry on every read while the Keystore stays down. Anything written
+     * to the fallback in the meantime is migrated into the real store the moment it
+     * opens, so a key saved during an outage isn't silently shadowed by an empty store.
+     */
+    private val secure: SharedPreferences
+        get() {
+            secureStore?.let { return it }
+            synchronized(secureLock) {
+                secureStore?.let { return it }
+                val now = SystemClock.elapsedRealtime()
+                if (lastSecureFailureAt != 0L && now - lastSecureFailureAt < SECURE_FAILURE_COOLDOWN_MS) {
+                    fallbackServed = true
+                    return memoryFallback
+                }
+                val real = createSecurePrefsOrNull(appCtx)
+                if (real != null) {
+                    if (fallbackServed) migrateFallbackInto(real)
+                    secureStore = real
+                    return real
+                }
+                lastSecureFailureAt = SystemClock.elapsedRealtime()
+                fallbackServed = true
+                return memoryFallback
+            }
+        }
+
+    /**
+     * Forces the lazy secure-store open on the caller's thread so first UI reads
+     * (e.g. the onboarding API-key prefill on main) hit the cached instance instead
+     * of paying the Keystore + disk cost. Call from a background thread only.
+     */
+    fun warmUp() {
+        secure
+    }
+
+    /**
+     * Copies values written to [memoryFallback] during a Keystore outage into the
+     * freshly opened real store (only Strings are ever stored there), then clears
+     * the fallback. Called under [secureLock] before the real store is cached.
+     */
+    private fun migrateFallbackInto(real: SharedPreferences) {
+        val pending = memoryFallback.all
+        if (pending.isEmpty()) return
+        Logg.w(TAG, "Migrating ${pending.size} value(s) from in-memory fallback into secure store")
+        val editor = real.edit()
+        for ((key, value) in pending) if (value is String) editor.putString(key, value)
+        editor.commit()
+        memoryFallback.edit().clear().commit()
+    }
+
+    var serverUrl: String
+        get() = plain.getString(KEY_SERVER_URL, "").orEmpty()
+        set(value) { plain.edit().putString(KEY_SERVER_URL, value).commit() }
+
+    var awayUrl: String
+        get() = plain.getString(KEY_AWAY_URL, "").orEmpty()
+        set(value) { plain.edit().putString(KEY_AWAY_URL, value).commit() }
+
+    var apiKey: String
+        get() = secure.getString(KEY_API_KEY, "").orEmpty()
+        set(value) { secure.edit().putString(KEY_API_KEY, value).commit() }
+
+    var sourceSpec: SourceSpec?
+        get() {
+            val raw = plain.getString(KEY_SOURCE_SPEC, null) ?: return null
+            return try {
+                ApiJson.json.decodeFromString(SourceSpec.serializer(), raw)
+            } catch (t: Throwable) {
+                Logg.e(TAG, "Failed to decode persisted SourceSpec", t)
+                null
+            }
+        }
+        set(value) {
+            if (value == null) {
+                plain.edit().remove(KEY_SOURCE_SPEC).commit()
+            } else {
+                val raw = ApiJson.json.encodeToString(SourceSpec.serializer(), value)
+                plain.edit().putString(KEY_SOURCE_SPEC, raw).commit()
+            }
+        }
+
+    var targetCacheCount: Int
+        get() = plain.getInt(KEY_TARGET_CACHE_COUNT, DEFAULT_TARGET_CACHE_COUNT)
+        set(value) { plain.edit().putInt(KEY_TARGET_CACHE_COUNT, value.coerceIn(50, 300)).commit() }
+
+    var refreshIntervalHours: Int
+        get() = plain.getInt(KEY_REFRESH_INTERVAL_HOURS, DEFAULT_REFRESH_INTERVAL_HOURS)
+        set(value) { plain.edit().putInt(KEY_REFRESH_INTERVAL_HOURS, value).commit() }
+
+    var deriveThemeFromPhoto: Boolean
+        get() = plain.getBoolean(KEY_DERIVE_THEME, false)
+        set(value) { plain.edit().putBoolean(KEY_DERIVE_THEME, value).commit() }
+
+    /** When false (default), photo downloads wait for an unmetered (Wi-Fi) connection. */
+    var syncOverCellular: Boolean
+        get() = plain.getBoolean(KEY_SYNC_OVER_CELLULAR, false)
+        set(value) { plain.edit().putBoolean(KEY_SYNC_OVER_CELLULAR, value).commit() }
+
+    /** Prefer real, sharp, well-framed photos (skip screenshots/blurry/crowd shots). */
+    var qualityFilterEnabled: Boolean
+        get() = plain.getBoolean(KEY_QUALITY_FILTER, true)
+        set(value) { plain.edit().putBoolean(KEY_QUALITY_FILTER, value).commit() }
+
+    /**
+     * How much face presence matters when the quality filter scores candidates:
+     * [PEOPLE_PREF_OFF] not at all, [PEOPLE_PREF_PREFER] photos with people outrank
+     * face-less ones (menus, signs, receipts sink), [PEOPLE_PREF_REQUIRE] face-less
+     * photos are excluded outright (relaxation still refills starving pools).
+     */
+    var peoplePreference: String
+        get() = plain.getString(KEY_PEOPLE_PREFERENCE, PEOPLE_PREF_PREFER) ?: PEOPLE_PREF_PREFER
+        set(value) { plain.edit().putString(KEY_PEOPLE_PREFERENCE, value).commit() }
+
+    /**
+     * Minimum minutes between photo changes; 0 = change at every screen wake (default).
+     * The swap still only ever happens while the screen is dark — an interval simply
+     * lets wakes inside it reveal the same photo again.
+     */
+    var rotationMinIntervalMinutes: Int
+        get() = plain.getInt(KEY_ROTATION_MIN_INTERVAL, 0)
+        set(value) { plain.edit().putInt(KEY_ROTATION_MIN_INTERVAL, value.coerceAtLeast(0)).commit() }
+
+    /** Millis of the last committed photo advance; written by the rotation controller. */
+    var lastAdvanceAt: Long
+        get() = plain.getLong(KEY_LAST_ADVANCE_AT, 0L)
+        set(value) { plain.edit().putLong(KEY_LAST_ADVANCE_AT, value).commit() }
+
+    /**
+     * Saved wallpaper cycles. The ACTIVE cycle's spec is mirrored into [sourceSpec]
+     * (which the sync pipeline reads) by [activateCycle]; the rest are inert drafts.
+     * Reading migrates a pre-cycles install: the existing [sourceSpec] becomes the
+     * first (active) saved cycle.
+     */
+    private val cyclesLock = Any()
+
+    var savedCycles: List<SavedCycle>
+        get() = synchronized(cyclesLock) { savedCyclesLocked() }
+        set(value) = synchronized(cyclesLock) { persistCyclesLocked(value) }
+
+    private fun savedCyclesLocked(): List<SavedCycle> {
+        val raw = plain.getString(KEY_SAVED_CYCLES, null)
+        if (raw != null) {
+            return try {
+                ApiJson.json.decodeFromString(
+                    kotlinx.serialization.builtins.ListSerializer(SavedCycle.serializer()), raw)
+            } catch (t: Throwable) {
+                // Never let one bad entry wipe the list via a read-modify-write cycle.
+                Logg.e(TAG, "savedCycles undecodable; treating as empty for THIS read", t)
+                emptyList()
+            }
+        }
+        // Migration: wrap the active spec (if any) as the first saved cycle.
+        val spec = sourceSpec ?: return emptyList()
+        val cycle = SavedCycle(java.util.UUID.randomUUID().toString(), spec.summaryLabel(), spec)
+        Logg.d(TAG, "cycles: migrated active spec into first cycle '${cycle.name}'")
+        persistCyclesLocked(listOf(cycle))
+        activeCycleId = cycle.id
+        return listOf(cycle)
+    }
+
+    private fun persistCyclesLocked(value: List<SavedCycle>) {
+        val raw = ApiJson.json.encodeToString(
+            kotlinx.serialization.builtins.ListSerializer(SavedCycle.serializer()), value)
+        plain.edit().putString(KEY_SAVED_CYCLES, raw).commit()
+    }
+
+    var activeCycleId: String
+        get() = plain.getString(KEY_ACTIVE_CYCLE_ID, "") ?: ""
+        set(value) { plain.edit().putString(KEY_ACTIVE_CYCLE_ID, value).commit() }
+
+    /** Saves (or replaces by id) a cycle without touching the active configuration. */
+    fun upsertCycle(cycle: SavedCycle) {
+        synchronized(cyclesLock) {
+            Logg.d(TAG, "cycles: upsert '${cycle.name}'")
+            persistCyclesLocked(savedCyclesLocked().filter { it.id != cycle.id } + cycle)
+        }
+    }
+
+    /** Removes a cycle; refuses to remove the active one. */
+    fun deleteCycle(cycleId: String): Boolean {
+        synchronized(cyclesLock) {
+            if (cycleId == activeCycleId) return false
+            val cycles = savedCyclesLocked()
+            val victim = cycles.firstOrNull { it.id == cycleId } ?: return false
+            Logg.d(TAG, "cycles: delete '${victim.name}'")
+            persistCyclesLocked(cycles.filter { it.id != cycleId })
+            return true
+        }
+    }
+
+    /** Makes [cycleId] the active configuration; the sync pipeline picks it up next run. */
+    fun activateCycle(cycleId: String): SavedCycle? {
+        synchronized(cyclesLock) {
+            val cycle = savedCyclesLocked().firstOrNull { it.id == cycleId } ?: return null
+            Logg.d(TAG, "cycles: activate '${cycle.name}'")
+            sourceSpec = cycle.spec
+            activeCycleId = cycle.id
+            return cycle
+        }
+    }
+
+    /**
+     * Repairs activeCycleId <-> sourceSpec divergence (belt-and-braces; the two are only
+     * ever written together, but the running spec is the ground truth the sync pipeline
+     * uses, so the cycle list must agree with it). Returns the list, healed if needed.
+     */
+    fun cyclesConsistentWithActiveSpec(): List<SavedCycle> {
+        synchronized(cyclesLock) {
+            val cycles = savedCyclesLocked()
+            val spec = sourceSpec ?: return cycles
+            val activeMatches = cycles.firstOrNull { it.id == activeCycleId }?.spec == spec
+            if (activeMatches) return cycles
+            val bySpec = cycles.firstOrNull { it.spec == spec }
+            if (bySpec != null) {
+                Logg.w(TAG, "cycles: healing activeCycleId -> '${bySpec.name}' (was inconsistent)")
+                activeCycleId = bySpec.id
+                return cycles
+            }
+            // The running spec has no cycle at all — re-wrap it so it's visible and owned.
+            val wrapped = SavedCycle(java.util.UUID.randomUUID().toString(), spec.summaryLabel(), spec)
+            Logg.w(TAG, "cycles: running spec had no cycle; re-wrapped as '${wrapped.name}'")
+            persistCyclesLocked(cycles + wrapped)
+            activeCycleId = wrapped.id
+            return cycles + wrapped
+        }
+    }
+
+    var isConfigured: Boolean
+        get() = plain.getBoolean(KEY_IS_CONFIGURED, false)
+        set(value) { plain.edit().putBoolean(KEY_IS_CONFIGURED, value).commit() }
+
+    var cropWidth: Int
+        get() = plain.getInt(KEY_CROP_WIDTH, 0)
+        set(value) { plain.edit().putInt(KEY_CROP_WIDTH, value).commit() }
+
+    var cropHeight: Int
+        get() = plain.getInt(KEY_CROP_HEIGHT, 0)
+        set(value) { plain.edit().putInt(KEY_CROP_HEIGHT, value).commit() }
+
+    var lastGoodBaseUrl: String
+        get() = plain.getString(KEY_LAST_GOOD_BASE_URL, "").orEmpty()
+        set(value) { plain.edit().putString(KEY_LAST_GOOD_BASE_URL, value).commit() }
+
+    /**
+     * Opens the encrypted store, or returns null when it is temporarily unusable.
+     *
+     * Deleting the prefs file destroys the stored API key, so it is reserved for PROVEN
+     * corruption ([isProvenCorruption]). Transient/unknown failures — Keystore not ready
+     * before first unlock, keystore daemon hiccups under load — are retried once after a
+     * short pause and otherwise surfaced as null so the caller can serve [memoryFallback]
+     * for now and retry the real store later. Never crashes, never silently wipes.
+     */
+    private fun createSecurePrefsOrNull(ctx: Context): SharedPreferences? {
+        val first = try {
+            return buildSecurePrefs(ctx)
+        } catch (t: Throwable) {
+            t
+        }
+        if (isProvenCorruption(first)) return resetSecurePrefs(ctx, first)
+        // Never sleep on the main thread: fall back immediately and let a later
+        // (background or post-cooldown) access retry the real store.
+        if (Looper.getMainLooper().isCurrentThread) {
+            Logg.w(TAG, "Secure store unavailable on main thread — falling back without retry: $first")
+            return null
+        }
+        Logg.w(TAG, "Secure store unavailable (transient Keystore error?); retrying once: $first")
+        SystemClock.sleep(SECURE_RETRY_DELAY_MS)
+        val second = try {
+            return buildSecurePrefs(ctx)
+        } catch (t: Throwable) {
+            t
+        }
+        if (isProvenCorruption(second)) return resetSecurePrefs(ctx, second)
+        Logg.e(TAG, "Secure store still unavailable — serving in-memory fallback (file kept)", second)
+        return null
+    }
+
+    /**
+     * Corrupted keyset or prefs file (e.g. restored from another device's backup): the
+     * stored API key is unrecoverable, so reset the file — and flip isConfigured off so
+     * the app re-onboards instead of silently sending empty credentials forever.
+     */
+    private fun resetSecurePrefs(ctx: Context, cause: Throwable): SharedPreferences? {
+        Logg.e(TAG, "Encrypted prefs corrupted — resetting secure store", cause)
+        ctx.deleteSharedPreferences(SECURE_PREFS)
+        plain.edit().putBoolean(KEY_IS_CONFIGURED, false).commit()
+        return try {
+            buildSecurePrefs(ctx)
+        } catch (t: Throwable) {
+            Logg.e(TAG, "Secure store rebuild failed after reset", t)
+            null
+        }
+    }
+
+    /**
+     * True only when the failure chain proves the on-disk keyset/prefs are unreadable
+     * garbage (bad AEAD tag, unparseable keyset proto, permanently invalidated master
+     * key). A transient Keystore marker anywhere in the chain vetoes corruption: the file
+     * is likely fine, we just could not talk to the Keystore. Unknown errors are NOT
+     * corruption — the default must never destroy the stored API key.
+     */
+    private fun isProvenCorruption(t: Throwable): Boolean {
+        var cause: Throwable? = t
+        while (cause != null) {
+            if (isTransientKeystoreError(cause)) return false
+            cause = cause.cause
+        }
+        cause = t
+        while (cause != null) {
+            if (cause is AEADBadTagException) return true
+            val name = cause.javaClass.name
+            // Tink's (shaded) protobuf parse failure: the keyset file itself is garbage.
+            if (name.endsWith(".InvalidProtocolBufferException")) return true
+            // Master key gone for good (e.g. lock screen credentials wiped): unrecoverable.
+            if (name == "android.security.keystore.KeyPermanentlyInvalidatedException") return true
+            cause = cause.cause
+        }
+        return false
+    }
+
+    /**
+     * Keystore-not-ready style failures (before first unlock, daemon restart, under
+     * load). Matched by class name — android.security.KeyStoreException only became
+     * public API in 33 and must not be referenced directly.
+     */
+    private fun isTransientKeystoreError(t: Throwable): Boolean {
+        if (t is IllegalStateException) return true
+        val name = t.javaClass.name
+        return name == "android.security.KeyStoreException" ||
+            name == "android.security.keystore.KeyStoreConnectException" ||
+            name == "android.security.keystore.UserNotAuthenticatedException"
+    }
+
+    private fun buildSecurePrefs(ctx: Context): SharedPreferences {
+        val masterKey = MasterKey.Builder(ctx)
+            .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
+            .build()
+        return EncryptedSharedPreferences.create(
+            ctx,
+            SECURE_PREFS,
+            masterKey,
+            EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
+            EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM,
+        )
+    }
+
+    /**
+     * Non-persistent [SharedPreferences] stand-in served while the Keystore is
+     * unavailable (e.g. before first unlock on GrapheneOS). Reads behave like an empty
+     * store; writes live in memory only and are lost on process death — a far better
+     * failure mode than deleting the real encrypted store and the API key with it.
+     */
+    private class InMemoryPrefs : SharedPreferences {
+
+        private val values = HashMap<String, Any?>()
+
+        override fun getAll(): MutableMap<String, *> = synchronized(this) { HashMap(values) }
+
+        override fun getString(key: String?, defValue: String?): String? =
+            get(key) as? String ?: defValue
+
+        override fun getStringSet(key: String?, defValues: MutableSet<String>?): MutableSet<String>? {
+            @Suppress("UNCHECKED_CAST")
+            return get(key) as? MutableSet<String> ?: defValues
+        }
+
+        override fun getInt(key: String?, defValue: Int): Int = get(key) as? Int ?: defValue
+
+        override fun getLong(key: String?, defValue: Long): Long = get(key) as? Long ?: defValue
+
+        override fun getFloat(key: String?, defValue: Float): Float = get(key) as? Float ?: defValue
+
+        override fun getBoolean(key: String?, defValue: Boolean): Boolean = get(key) as? Boolean ?: defValue
+
+        override fun contains(key: String?): Boolean =
+            key != null && synchronized(this) { values.containsKey(key) }
+
+        override fun edit(): SharedPreferences.Editor = EditorImpl()
+
+        // Nothing registers listeners on the secure store; the fallback does not dispatch them.
+        override fun registerOnSharedPreferenceChangeListener(
+            listener: SharedPreferences.OnSharedPreferenceChangeListener?
+        ) = Unit
+
+        override fun unregisterOnSharedPreferenceChangeListener(
+            listener: SharedPreferences.OnSharedPreferenceChangeListener?
+        ) = Unit
+
+        private fun get(key: String?): Any? =
+            if (key == null) null else synchronized(this) { values[key] }
+
+        private inner class EditorImpl : SharedPreferences.Editor {
+            private val pending = LinkedHashMap<String, Any?>()
+            private var clearAll = false
+
+            override fun putString(key: String?, value: String?) = put(key, value)
+            override fun putStringSet(key: String?, values: MutableSet<String>?) =
+                put(key, values?.toMutableSet())
+            override fun putInt(key: String?, value: Int) = put(key, value)
+            override fun putLong(key: String?, value: Long) = put(key, value)
+            override fun putFloat(key: String?, value: Float) = put(key, value)
+            override fun putBoolean(key: String?, value: Boolean) = put(key, value)
+            override fun remove(key: String?) = put(key, REMOVE)
+
+            override fun clear(): SharedPreferences.Editor {
+                clearAll = true
+                return this
+            }
+
+            override fun commit(): Boolean {
+                synchronized(this@InMemoryPrefs) {
+                    if (clearAll) values.clear()
+                    for ((k, v) in pending) {
+                        if (v === REMOVE) values.remove(k) else values[k] = v
+                    }
+                }
+                clearAll = false
+                pending.clear()
+                return true
+            }
+
+            override fun apply() {
+                commit()
+            }
+
+            private fun put(key: String?, value: Any?): SharedPreferences.Editor {
+                if (key != null) pending[key] = value
+                return this
+            }
+        }
+
+        private companion object {
+            /** Sentinel marking a pending [SharedPreferences.Editor.remove]. */
+            val REMOVE = Any()
+        }
+    }
+
+    companion object {
+        private const val TAG = "SettingsRepository"
+
+        private const val PLAIN_PREFS = "immichwall_settings"
+        private const val SECURE_PREFS = "immichwall_secure"
+
+        /** Pause before the single retry of a transiently failing secure-store open. */
+        private const val SECURE_RETRY_DELAY_MS = 150L
+
+        /** After a failed open, serve the fallback without retrying for this long. */
+        private const val SECURE_FAILURE_COOLDOWN_MS = 5_000L
+
+        private const val KEY_SERVER_URL = "serverUrl"
+        private const val KEY_AWAY_URL = "awayUrl"
+        private const val KEY_API_KEY = "apiKey"
+        private const val KEY_SOURCE_SPEC = "sourceSpec"
+        private const val KEY_TARGET_CACHE_COUNT = "targetCacheCount"
+        private const val KEY_REFRESH_INTERVAL_HOURS = "refreshIntervalHours"
+        private const val KEY_DERIVE_THEME = "deriveThemeFromPhoto"
+        private const val KEY_SYNC_OVER_CELLULAR = "syncOverCellular"
+        private const val KEY_QUALITY_FILTER = "qualityFilterEnabled"
+        private const val KEY_PEOPLE_PREFERENCE = "peoplePreference"
+        const val PEOPLE_PREF_OFF = "off"
+        const val PEOPLE_PREF_PREFER = "prefer"
+        const val PEOPLE_PREF_REQUIRE = "require"
+        private const val KEY_ROTATION_MIN_INTERVAL = "rotationMinIntervalMinutes"
+        private const val KEY_LAST_ADVANCE_AT = "lastAdvanceAt"
+        private const val KEY_SAVED_CYCLES = "savedCycles"
+        private const val KEY_ACTIVE_CYCLE_ID = "activeCycleId"
+        private const val KEY_IS_CONFIGURED = "isConfigured"
+        private const val KEY_CROP_WIDTH = "cropWidth"
+        private const val KEY_CROP_HEIGHT = "cropHeight"
+        private const val KEY_LAST_GOOD_BASE_URL = "lastGoodBaseUrl"
+
+        const val DEFAULT_TARGET_CACHE_COUNT = 150
+        const val DEFAULT_REFRESH_INTERVAL_HOURS = 6
+
+        @Volatile
+        private var instance: SettingsRepository? = null
+
+        fun get(ctx: Context): SettingsRepository =
+            instance ?: synchronized(this) {
+                instance ?: SettingsRepository(ctx.applicationContext).also { instance = it }
+            }
+    }
+}

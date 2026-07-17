@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Rounded photo frame -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M32,32 h44 a8,8 0 0 1 8,8 v28 a8,8 0 0 1 -8,8 h-44 a8,8 0 0 1 -8,-8 v-28 a8,8 0 0 1 8,-8 z
+                          M32,38 a2,2 0 0 0 -2,2 v28 a2,2 0 0 0 2,2 h44 a2,2 0 0 0 2,-2 v-28 a2,2 0 0 0 -2,-2 z" />
+    <!-- Sun -->
+    <path
+        android:fillColor="#FFB400"
+        android:pathData="M42,48 m-5,0 a5,5 0 1 1 10,0 a5,5 0 1 1 -10,0" />
+    <!-- Mountains -->
+    <path
+        android:fillColor="#4250AF"
+        android:pathData="M32,68 L48,50 L58,61 L66,53 L76,68 Z" />
+</vector>

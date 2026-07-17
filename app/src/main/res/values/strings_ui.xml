@@ -1,0 +1,200 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Common -->
+    <string name="common_retry">Retry</string>
+    <string name="check_ok_glyph">✓</string>
+    <string name="check_fail_glyph">✕</string>
+
+    <!-- Welcome -->
+    <string name="welcome_title">Immich Wallpaper</string>
+    <string name="welcome_body">A new photo from your Immich library on your lock and home screen every time you wake your phone — people, albums, smart search, places, favorites, memories, or everything.</string>
+    <string name="welcome_privacy">Privacy: photos are downloaded straight from your own server and cached only inside this profile\'s encrypted app storage. Nothing leaves your device.</string>
+    <string name="welcome_get_started">Get started</string>
+
+    <!-- Server setup -->
+    <string name="server_title">Connect to your Immich server</string>
+    <string name="server_url_hint">Server URL</string>
+    <string name="server_url_helper">e.g. http://192.168.1.20:2283</string>
+    <string name="server_away_hint">Away URL (optional)</string>
+    <string name="server_away_helper">Used when the primary URL is unreachable, e.g. a Tailscale address</string>
+    <string name="server_api_key_hint">API key</string>
+    <string name="server_test">Test connection</string>
+    <string name="server_continue">Continue</string>
+    <string name="server_missing_fields">Enter the server URL and API key first</string>
+    <string name="server_check_connection">Connection</string>
+
+    <!-- Source picker -->
+    <string name="source_title">Choose a photo source</string>
+    <string name="source_people">People</string>
+    <string name="source_people_desc">Photos of one or more recognized people</string>
+    <string name="source_album">Album</string>
+    <string name="source_album_desc">Photos from a single album</string>
+    <string name="source_smart">Smart search</string>
+    <string name="source_smart_desc">Describe the photos in words (CLIP semantic search)</string>
+    <string name="source_location">Location</string>
+    <string name="source_location_desc">Photos taken in a specific city</string>
+    <string name="source_favorites">Favorites</string>
+    <string name="source_favorites_desc">Photos you marked as favorite</string>
+    <string name="source_memories">Memories</string>
+    <string name="source_memories_desc">On this day, over the years</string>
+    <string name="source_everything">Everything</string>
+    <string name="source_everything_desc">Random photos from the whole library</string>
+
+    <!-- People picker -->
+    <string name="people_title">Pick people</string>
+    <string name="people_search_hint">Search people</string>
+    <string name="people_match_any">Any of them</string>
+    <string name="people_match_all">All together</string>
+    <string name="people_continue">Continue</string>
+    <string name="people_done">Done</string>
+    <string name="people_empty">No named people found on the server</string>
+    <string name="people_load_error">Couldn\'t load people: %1$s</string>
+    <string name="cd_person_thumb">Person photo</string>
+
+    <!-- Album picker -->
+    <string name="album_title">Pick an album</string>
+    <string name="album_count">%1$d photos</string>
+    <string name="album_empty">No albums found on the server</string>
+    <string name="album_load_error">Couldn\'t load albums: %1$s</string>
+
+    <!-- Location picker -->
+    <string name="location_title">Pick a place</string>
+    <string name="location_search_hint">Search cities</string>
+    <string name="location_empty">No places with location data found</string>
+    <string name="location_load_error">Couldn\'t load places: %1$s</string>
+
+    <!-- Smart query -->
+    <string name="smart_title">Smart search</string>
+    <string name="smart_query_hint">Describe the photos</string>
+    <string name="smart_query_helper">e.g. “sunset over water”</string>
+    <string name="smart_select_people">Limit to people (optional)</string>
+    <string name="smart_people_none">No person filter</string>
+    <string name="smart_people_selected">People: %1$s</string>
+    <string name="smart_continue">Continue</string>
+
+    <!-- Source preview -->
+    <string name="preview_title">Preview</string>
+    <string name="preview_incomplete">Source is incomplete — pick again</string>
+    <string name="preview_empty">No photos found for this source. Go back and adjust it.</string>
+    <string name="preview_error">Couldn\'t load preview: %1$s</string>
+    <string name="preview_confirm">Use this source</string>
+    <string name="preview_save">Save cycle</string>
+    <string name="preview_save_activate">Save &amp; activate</string>
+    <string name="preview_cycle_saved">Cycle saved — the current one keeps running</string>
+    <string name="status_settings_cd">Settings</string>
+    <string name="status_preview_cd">Current wallpaper photo</string>
+    <string name="status_active_cycle">Active cycle</string>
+    <string name="status_cycles_heading">Your cycles</string>
+    <string name="status_new_cycle">+ New cycle</string>
+    <string name="status_cycles_empty">No saved cycles yet.</string>
+    <string name="cycle_active_label">Active — showing on your wallpaper</string>
+    <string name="cycle_activated">Switched to “%1$s” — new photos incoming</string>
+    <string name="cycle_delete_cd">Delete cycle</string>
+    <string name="cycle_delete_active">This cycle is active — switch to another one first</string>
+    <string name="cycle_delete_title">Delete cycle?</string>
+    <string name="cycle_delete_message">“%1$s” will be removed from your saved cycles. Cached photos are unaffected.</string>
+    <string name="cycle_delete_confirm">Delete</string>
+    <string name="options_save">Save</string>
+    <string name="preview_source_updated">Source updated — fetching new photos</string>
+    <string name="cd_preview_photo">Preview photo</string>
+
+    <!-- Options -->
+    <string name="options_title">Options</string>
+    <string name="options_cache_heading">Photos to keep cached</string>
+    <string name="options_cache_label">%1$d photos (≈%2$d MB)</string>
+    <string name="options_interval_heading">Check for new photos every</string>
+    <string name="options_hours_3">3 hours</string>
+    <string name="options_hours_6">6 hours</string>
+    <string name="options_hours_12">12 hours</string>
+    <string name="options_hours_24">24 hours</string>
+    <string name="custom_title">Custom filter</string>
+    <string name="custom_explainer">Combine any of the filters below — people from a particular album, a search phrase in a place, favorites from a date range… Empty fields are ignored.</string>
+    <string name="custom_query_hint">Describe the photos (optional)</string>
+    <string name="custom_people_button">Select people…</string>
+    <string name="custom_people_none">No people filter</string>
+    <string name="custom_require_all">Only photos with all of them together</string>
+    <string name="custom_album_button">Limit to an album…</string>
+    <string name="custom_album_set">Album: %1$s</string>
+    <string name="custom_city_button">Limit to a place…</string>
+    <string name="custom_city_set">Place: %1$s</string>
+    <string name="custom_favorites">Favorites only</string>
+    <string name="custom_after_button">Taken after…</string>
+    <string name="custom_after_set">After %1$s</string>
+    <string name="custom_before_button">Taken before…</string>
+    <string name="custom_before_set">Before %1$s</string>
+    <string name="custom_dates_hint">Cancel a date picker to clear that bound.</string>
+    <string name="custom_clear">Clear</string>
+    <string name="custom_needs_filter">Set at least one filter — otherwise use “Everything”.</string>
+    <string name="custom_list_error">Couldn’t load the list (server unreachable?)</string>
+    <string name="source_custom">Custom filter</string>
+    <string name="source_custom_desc">Combine people, album, search, place, favorites and dates</string>
+    <string name="detail_activate">Activate this cycle</string>
+    <string name="detail_edit_source">Edit photo source…</string>
+    <string name="detail_inactive">Saved — not currently showing</string>
+    <string name="memories_title">Memories</string>
+    <string name="memories_explainer">Photos taken on (or around) today’s date in past years — like “on this day” throwbacks. The selection rolls over automatically every day.</string>
+    <string name="memories_availability_loading">Checking today’s memories…</string>
+    <string name="memories_availability_line">On this day: %1$s — %2$d photos</string>
+    <string name="memories_availability_none">No memories for today’s exact date — a wider window will look at nearby days too.</string>
+    <string name="memories_availability_error">Couldn’t check today’s memories (server unreachable?)</string>
+    <string name="memories_window_heading">Look at</string>
+    <string name="memories_window_day">This exact day only</string>
+    <string name="memories_window_3">Around this day (±3 days)</string>
+    <string name="memories_window_week">This week (±7 days)</string>
+    <string name="memories_years_heading">From which years</string>
+    <string name="memories_years_all">All past years</string>
+    <string name="memories_years_last">Only last year</string>
+    <string name="memories_years_older">Two or more years ago</string>
+    <string name="memories_continue">Continue</string>
+    <string name="options_rotation_heading">Photo changes</string>
+    <string name="options_rotation_wake">Every screen wake</string>
+    <string name="options_rotation_5m">At most every 5 minutes</string>
+    <string name="options_rotation_1h">At most every hour</string>
+    <string name="options_rotation_6h">At most every 6 hours</string>
+    <string name="options_rotation_1d">Once a day</string>
+    <string name="options_rotation_desc">The photo always changes while the screen is off, so you never see the swap.</string>
+    <string name="options_cellular">Also sync over mobile data</string>
+    <string name="options_cellular_desc">Off: new photos download only on Wi-Fi. On: syncs use mobile data too (useful with an away URL / VPN).</string>
+    <string name="options_quality">Prefer high-quality photos</string>
+    <string name="options_quality_desc">Skips screenshots, blurry shots and photos where faces would be cut off. Relaxes automatically when a source has few photos.</string>
+    <string name="preview_people_heading">People in photos (skips signs, menus, documents)</string>
+    <string name="preview_people_off">Any photo</string>
+    <string name="preview_people_prefer">Prefer people</string>
+    <string name="preview_people_require">Require people</string>
+    <string name="options_theme">Derive theme colors from the current photo</string>
+    <string name="options_theme_desc">When on, Material You may re-theme the whole UI on every wake. Off keeps a stable palette.</string>
+    <string name="options_continue">Continue</string>
+
+    <!-- Apply -->
+    <string name="apply_title">All set</string>
+    <string name="apply_summary">Source: %1$s\nCached photos: %2$d\nRefresh: every %3$d hours</string>
+    <string name="apply_explanation">This starts the first download batch and opens the system live-wallpaper screen. Pick “Immich Wallpaper” there and set it on home and lock screen.</string>
+    <string name="apply_button">Download &amp; set wallpaper</string>
+    <string name="apply_lock_replace_title">Replace lock screen wallpaper?</string>
+    <string name="apply_lock_replace_message">Your lock screen currently has its own wallpaper. It will be removed so the photo wallpaper can cover both your home and lock screens.</string>
+    <string name="apply_lock_replace_confirm">Replace</string>
+    <string name="apply_lock_replace_cancel">Cancel</string>
+    <string name="apply_manual_title">Set the wallpaper manually</string>
+    <string name="apply_manual_message">This system has no live-wallpaper picker. Open Settings → Wallpaper &amp; style (or Display → Wallpaper), choose Live wallpapers, and select Immich Wallpaper.</string>
+    <string name="apply_manual_ok">OK</string>
+
+    <!-- Status -->
+    <string name="status_title">Immich Wallpaper</string>
+    <string name="status_source_heading">Source</string>
+    <string name="status_cache_heading">Cache</string>
+    <string name="status_sync_heading">Last sync</string>
+    <string name="status_cache_stats">%1$d of %2$d photos ready · %3$d MB</string>
+    <string name="status_sync_never">Never</string>
+    <string name="status_sync_line">%1$s — %2$s</string>
+    <string name="status_no_photo">No photos cached yet — they\'ll appear after the first sync.</string>
+    <string name="status_refresh">Refresh now</string>
+    <string name="status_refresh_started">Refresh started</string>
+    <string name="status_change_source">Change source</string>
+    <string name="status_reapply">Re-apply wallpaper</string>
+    <string name="status_battery_hint">If wallpaper updates ever stop, exclude Immich Wallpaper from battery optimization.</string>
+    <string name="status_battery_button">Battery settings</string>
+    <string name="status_battery_error">Couldn\'t open battery settings</string>
+    <string name="status_source_none">No source configured</string>
+    <string name="status_banner_text">⚠ %1$s</string>
+    <string name="cd_status_preview">Current wallpaper</string>
+</resources>
