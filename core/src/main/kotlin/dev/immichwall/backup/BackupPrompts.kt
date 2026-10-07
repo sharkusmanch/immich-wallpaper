@@ -33,6 +33,12 @@ enum class ServerPart {
     INVALID_TO_ENTER,
 }
 
+/**
+ * The addresses a confirmation names before a server block can be applied, as they would be
+ * stored. [away] is empty when the block has none. Never the API key.
+ */
+data class ServerAddresses(val primary: String, val away: String)
+
 /** What to show for a file the user picked to restore from. */
 sealed interface RestorePrompt {
     /** Ask before anything changes. */
@@ -100,6 +106,19 @@ object BackupPrompts {
             BackupRestore.serverToApply(server) == null -> ServerPart.INVALID_TO_ENTER
             else -> ServerPart.USED
         }
+    }
+
+    /**
+     * The addresses the confirmation for [backup] must show: those of a server block that
+     * confirming can apply (always where the screen uses it, by the user's choice where it
+     * is optional). The API key is sent to both, the away address whenever the first cannot
+     * be reached, so neither is stored unseen. Null when nothing can be applied: no block,
+     * one [BackupRestore.serverToApply] rejects, or a screen that ignores it.
+     */
+    fun serverAddressesToShow(backup: Backup, serverUse: ServerUse): ServerAddresses? = when (serverUse) {
+        ServerUse.IGNORED -> null
+        ServerUse.OPTIONAL, ServerUse.USED ->
+            backup.server?.let(BackupRestore::serverToApply)?.let { ServerAddresses(it.serverUrl, it.awayUrl) }
     }
 
     /**

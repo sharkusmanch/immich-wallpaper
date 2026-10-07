@@ -110,6 +110,50 @@ class BackupPromptsTest {
     }
 
     @Test
+    fun `where the server block is used the confirmation shows both addresses as they will be stored`() {
+        val both = backup.copy(server = BackupServer(" photos.example.test/ ", "https://away.example.test/", "made-up-key"))
+        assertEquals(
+            ServerAddresses("https://photos.example.test", "https://away.example.test"),
+            BackupPrompts.serverAddressesToShow(both, ServerUse.USED),
+        )
+    }
+
+    @Test
+    fun `a blank away address is shown as none`() {
+        for (away in listOf("", "   ")) {
+            assertEquals(
+                ServerAddresses("https://photos.example.test", ""),
+                BackupPrompts.serverAddressesToShow(backup.copy(server = server.copy(awayUrl = away)), ServerUse.USED),
+            )
+        }
+    }
+
+    @Test
+    fun `where replacing is a choice the confirmation shows what ticking it would store`() {
+        val both = backup.copy(server = server.copy(awayUrl = "https://away.example.test"))
+        assertEquals(
+            ServerAddresses("https://photos.example.test", "https://away.example.test"),
+            BackupPrompts.serverAddressesToShow(both, ServerUse.OPTIONAL),
+        )
+    }
+
+    @Test
+    fun `no addresses are shown where the server block is ignored`() {
+        val both = backup.copy(server = server.copy(awayUrl = "https://away.example.test"))
+        assertEquals(null, BackupPrompts.serverAddressesToShow(both, ServerUse.IGNORED))
+    }
+
+    @Test
+    fun `no addresses are shown for a server block that would not be applied, or none`() {
+        for (use in ServerUse.entries) {
+            assertEquals(null, BackupPrompts.serverAddressesToShow(backup, use))
+            for (bad in unusable) {
+                assertEquals(null, BackupPrompts.serverAddressesToShow(backup.copy(server = bad), use))
+            }
+        }
+    }
+
+    @Test
     fun `nothing applied is never reported as a restore`() {
         for (use in ServerUse.entries) for (requested in listOf(true, false)) for (serverApplied in listOf(true, false)) {
             assertEquals(

@@ -23,6 +23,7 @@ import dev.immichwall.backup.BackupPrompts
 import dev.immichwall.backup.BackupRestore
 import dev.immichwall.backup.RestoreOutcome
 import dev.immichwall.backup.RestorePrompt
+import dev.immichwall.backup.ServerAddresses
 import dev.immichwall.backup.ServerUse
 import dev.immichwall.schedule.ScheduleApplier
 import dev.immichwall.settings.BackupApplied
@@ -225,6 +226,13 @@ class SettingsRestoreViewModel(app: Application) : AndroidViewModel(app) {
     /** What the screen the waiting backup was picked on does with a server block. */
     private var pendingServerUse = ServerUse.IGNORED
     val hasPending: Boolean get() = pending != null
+
+    /**
+     * The addresses confirming the waiting backup can store, for the confirmation to show.
+     * Read from here each time the dialog is built: they are not put in its arguments.
+     */
+    val pendingServerAddresses: ServerAddresses?
+        get() = pending?.let { BackupPrompts.serverAddressesToShow(it, pendingServerUse) }
 
     private var picking = false
     private var reading = false

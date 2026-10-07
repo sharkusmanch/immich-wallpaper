@@ -21,6 +21,8 @@ import dev.immichwall.backup.ServerPart
  * backup holds a server address and key and the screen offers them as a choice, replacing
  * the current ones is a checkbox, off unless ticked; where the screen uses them (first-run
  * setup's server screen) the text says so instead, or says they are still to be entered.
+ * Whenever confirming can store them, the backup's addresses are shown first: the API key
+ * is sent to both, and a backup file can come from anywhere.
  *
  * Shown by [SettingsRestoreFlow] in the host's child fragment manager. The backup itself
  * waits in the host's [SettingsRestoreViewModel]; "Restore" is the only thing that applies
@@ -44,6 +46,9 @@ class RestoreConfirmDialog : DialogFragment() {
         val entries = args.getInt(ARG_ENTRIES)
         val server = ServerPart.valueOf(args.getString(ARG_SERVER)!!)
 
+        // From the waiting backup, not the arguments: addresses do not go into saved state.
+        val addresses = model.pendingServerAddresses
+
         val content = LayoutInflater.from(requireContext()).inflate(R.layout.dialog_restore_confirm, null)
         content.findViewById<TextView>(R.id.restore_confirm_message).text = listOf(
             getString(
@@ -59,13 +64,24 @@ class RestoreConfirmDialog : DialogFragment() {
                 when (server) {
                     ServerPart.NOT_IN_FILE -> R.string.restore_confirm_server_none
                     ServerPart.IGNORED -> R.string.restore_confirm_server_ignored
-                    ServerPart.OPTIONAL -> R.string.restore_confirm_server_optional
+                    ServerPart.OPTIONAL ->
+                        if (addresses != null) R.string.restore_confirm_server_optional_shown
+                        else R.string.restore_confirm_server_optional
                     ServerPart.USED -> R.string.restore_confirm_server_used
                     ServerPart.TO_ENTER -> R.string.restore_confirm_server_to_enter
                     ServerPart.INVALID_TO_ENTER -> R.string.restore_confirm_server_invalid_to_enter
                 }
             ),
         ).joinToString("\n\n")
+        if (addresses != null) {
+            content.findViewById<TextView>(R.id.restore_confirm_server_addresses).apply {
+                text = listOfNotNull(
+                    getString(R.string.restore_confirm_server_address, addresses.primary),
+                    addresses.away.takeIf { it.isNotEmpty() }?.let { getString(R.string.restore_confirm_away_address, it) },
+                ).joinToString("\n")
+                visibility = View.VISIBLE
+            }
+        }
         // Keeps its own state across recreation (it has an id, and the dialog saves its views).
         val replaceServer = content.findViewById<MaterialCheckBox>(R.id.restore_confirm_replace_server)
         if (server == ServerPart.OPTIONAL) replaceServer.visibility = View.VISIBLE

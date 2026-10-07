@@ -17,6 +17,18 @@
         android:layout_height="wrap_content"
         android:textAppearance="?attr/textAppearanceBodyMedium" />
 
+    <!-- The addresses confirming can store. Wraps; its text is set on every build, not saved. -->
+    <TextView
+        android:id="@+id/restore_confirm_server_addresses"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:saveEnabled="false"
+        android:textAppearance="?attr/textAppearanceBodyMedium"
+        android:textColor="?attr/colorOnSurface"
+        android:textIsSelectable="false"
+        android:visibility="gone" />
+
     <!-- Shown only when the backup holds a server block and this screen may apply it. -->
     <com.google.android.material.checkbox.MaterialCheckBox
         android:id="@+id/restore_confirm_replace_server"

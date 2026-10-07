@@ -78,8 +78,9 @@ on-device cache, so it keeps working with no connection at all.
   server** and **Choose a photo source** steps offer **Restore from a backup**. The server
   address and API key go in the file only if you tick that box when saving, and they are
   stored unencrypted; restoring on the settings screen replaces yours only if you tick that
-  choice. In the wizard, the server step uses the ones in the backup when it has them
-  (and tests the connection), and the source step ignores them. Photos are not included.
+  choice. In the wizard, the server step uses the ones in the backup when it has
+  them and they are valid (it shows the addresses first, then tests the connection), and
+  the source step ignores them. Photos are not included.
 - **Wi-Fi or mobile data** — downloads wait for Wi-Fi unless you opt into cellular;
   a separate away-URL (e.g. a VPN/Tailscale address) covers syncing when you're not on
   your home network. Both addresses must be `https://` — plain HTTP is refused, so a LAN server needs a
