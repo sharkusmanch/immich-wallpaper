@@ -19,6 +19,7 @@ import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
 import androidx.lifecycle.viewModelScope
 import dev.immichwall.R
+import dev.immichwall.backup.Backup
 import dev.immichwall.backup.BackupCodec
 import dev.immichwall.backup.BackupFile
 import dev.immichwall.backup.BackupPrompts
@@ -26,6 +27,7 @@ import dev.immichwall.backup.BackupSaved
 import dev.immichwall.settings.SettingsRepository
 import dev.immichwall.util.Logg
 import java.io.IOException
+import java.io.OutputStream
 import java.time.LocalDate
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -115,20 +117,30 @@ class SettingsBackupViewModel(app: Application) : AndroidViewModel(app) {
     @StringRes
     private fun writeNow(uri: Uri, includeServer: Boolean): Int {
         val resolver = getApplication<Application>().contentResolver
-        return try {
-            val backup = SettingsRepository.get(getApplication()).buildBackup(includeServer)
-            val bytes = BackupCodec.encode(backup).toByteArray(Charsets.UTF_8)
+        val backup: Backup
+        val bytes: ByteArray
+        val out: OutputStream
+        // Nothing has touched the file yet: a failure here must leave whatever is there alone.
+        try {
+            backup = SettingsRepository.get(getApplication()).buildBackup(includeServer)
+            bytes = BackupCodec.encode(backup).toByteArray(Charsets.UTF_8)
             // "wt": the picker may hand back an existing file the user chose to overwrite.
-            (resolver.openOutputStream(uri, "wt") ?: throw IOException("no stream")).use { it.write(bytes) }
+            out = resolver.openOutputStream(uri, "wt") ?: throw IOException("no stream")
+        } catch (e: Exception) {
+            // The class only: a message could quote the file.
+            Logg.w(TAG, "backup not written: ${e.javaClass.simpleName}")
+            return R.string.backup_failed
+        }
+        return try {
+            out.use { it.write(bytes) }
             when (BackupPrompts.backupSaved(backup, includeServer)) {
                 BackupSaved.SAVED -> R.string.backup_saved
                 BackupSaved.SAVED_WITH_SERVER -> R.string.backup_saved_with_server
                 BackupSaved.SAVED_SERVER_UNSET -> R.string.backup_saved_server_unset
             }
         } catch (e: Exception) {
-            // The class only: a message could quote the file.
             Logg.w(TAG, "backup not written: ${e.javaClass.simpleName}")
-            // The picker has already created the file; do not leave an empty or half one.
+            // The stream truncated the file; do not leave an empty or half one.
             runCatching { DocumentsContract.deleteDocument(resolver, uri) }
             R.string.backup_failed
         }
