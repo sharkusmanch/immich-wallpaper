@@ -98,6 +98,14 @@ Grab the latest APK from the
 (`adb install immich-wallpaper-x.y.z.apk`, or open the file on the phone). Android
 will warn about unknown sources — that's normal for sideloaded apps.
 
+Each release is built and signed by GitHub Actions from a tagged commit on `main`, and
+the build is attested. To check a download came from this repository's workflow:
+
+```bash
+gh attestation verify immich-wallpaper-x.y.z.apk -R sharkusmanch/immich-wallpaper
+sha256sum --check immich-wallpaper-x.y.z.apk.sha256   # both files in the same folder
+```
+
 ## Building from source
 
 ```bash
