@@ -27,6 +27,16 @@ class CachePolicyTest {
         assertEquals(id(3), CachePolicy.nextToShow(entries, current = entries[0], activeKey = fall)?.assetId)
     }
 
+    @Test fun `least-recently-shown wins among shown photos, and never-shown beats them all`() {
+        val current = e(1, fall, lastShown = 500, shown = 5)
+        val justShown = e(2, fall, lastShown = 400, shown = 1)
+        val longAgo = e(3, fall, lastShown = 100, shown = 1)
+        val never = e(4, fall)
+        assertEquals(id(4), CachePolicy.nextToShow(listOf(current, justShown, longAgo, never), current, fall)?.assetId)
+        assertEquals(id(3), CachePolicy.nextToShow(listOf(current, justShown, longAgo), current, fall)?.assetId)
+        assertEquals(id(2), CachePolicy.nextToShow(listOf(current, justShown), current, fall)?.assetId)
+    }
+
     @Test fun `the photo on screen is not picked again`() {
         val entries = listOf(e(1, fall), e(2, fall, lastShown = 99, shown = 3))
         assertEquals(id(2), CachePolicy.nextToShow(entries, current = entries[0], activeKey = fall)?.assetId)
@@ -86,6 +96,10 @@ class CachePolicyTest {
         assertEquals(true, Regex("[0-9a-f]{16}/${id(1)}\\.jpg").matches(name), name)
         assertEquals(name, CachePolicy.readyFileName(fall, id(1)))
         assertEquals("legacy/${id(1)}.jpg", CachePolicy.readyFileName("", id(1)))
+    }
+
+    @Test fun `two cycles never share a file for the same photo`() {
+        assertEquals(false, CachePolicy.readyFileName(fall, id(1)) == CachePolicy.readyFileName(xmas, id(1)))
     }
 
     @Test fun `keys that differ only in the quality tag do not share files`() {

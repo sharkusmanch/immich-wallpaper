@@ -29,6 +29,8 @@ class SchedulePlanTest {
         assertEquals("fall", p.activeCycleId)
         assertEquals(listOf("fall"), p.retainedCycleIds)
         assertFalse(p.overrideActive)
+        assertEquals(Resolution("fall", "e-fall"), p.resolution)
+        assertFalse(p.clearOverride)
     }
 
     @Test fun `two days before a boundary the next cycle is retained for prefetch`() {
