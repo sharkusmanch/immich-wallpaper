@@ -36,3 +36,22 @@ data class ScheduleOverride(
 
 /** What the schedule says for one date: the cycle, and the entry that won (null = default). */
 data class Resolution(val cycleId: String, val entryId: String?)
+
+/**
+ * What one schedule row shows: the [title], the [cycleLine] under it (null when the title
+ * already is the cycle's name), and whether the dates are [singleDay] rather than a range.
+ */
+data class ScheduleEntryRow(val title: String, val cycleLine: String?, val singleDay: Boolean) {
+    companion object {
+        /** [cycleName] is null when the entry's cycle no longer exists; [missingLabel] stands in for it. */
+        fun of(entry: ScheduleEntry, cycleName: String?, missingLabel: String): ScheduleEntryRow {
+            val cycle = cycleName ?: missingLabel
+            val named = entry.name.isNotBlank()
+            return ScheduleEntryRow(
+                title = if (named) entry.name else cycle,
+                cycleLine = if (named) cycle else null,
+                singleDay = entry.start == entry.end,
+            )
+        }
+    }
+}

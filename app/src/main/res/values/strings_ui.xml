@@ -207,7 +207,7 @@
     <string name="schedule_entries_helper">Checked from the top; the first entry that covers today wins.</string>
     <string name="schedule_entries_empty">No entries yet.</string>
     <string name="schedule_add">Add entry</string>
-    <string name="schedule_entry_detail">%1$s\n%2$s – %3$s</string>
+    <string name="schedule_entry_dates">%1$s – %2$s</string>
     <string name="schedule_entry_shadowed">Never active — an entry above covers all of these dates</string>
     <string name="schedule_entry_missing_cycle">Its cycle was deleted — pick another</string>
     <string name="schedule_entry_up_cd">Move up</string>

@@ -17,6 +17,7 @@ import dev.immichwall.R
 import dev.immichwall.schedule.Schedule
 import dev.immichwall.schedule.ScheduleApplier
 import dev.immichwall.schedule.ScheduleEntry
+import dev.immichwall.schedule.ScheduleEntryRow
 import dev.immichwall.schedule.ScheduleResolver
 import dev.immichwall.schedule.ScheduleText
 import dev.immichwall.settings.SettingsRepository
@@ -162,15 +163,15 @@ class ScheduleFragment : Fragment(R.layout.fragment_schedule) {
         val inflater = LayoutInflater.from(requireContext())
         entries.forEachIndexed { index, entry ->
             val row = inflater.inflate(R.layout.item_schedule_entry, container, false)
-            // An unnamed entry goes by its cycle's name.
-            val label = entry.name.ifBlank { names[entry.cycleId] ?: getString(R.string.schedule_cycle_missing) }
+            val content = ScheduleEntryRow.of(entry, names[entry.cycleId], getString(R.string.schedule_cycle_missing))
+            val label = content.title
             row.findViewById<TextView>(R.id.entry_name).text = label
-            row.findViewById<TextView>(R.id.entry_detail).text = getString(
-                R.string.schedule_entry_detail,
-                names[entry.cycleId] ?: getString(R.string.schedule_cycle_missing),
-                formatDay(entry.start),
-                formatDay(entry.end),
-            )
+            val cycleLine = row.findViewById<TextView>(R.id.entry_cycle)
+            cycleLine.text = content.cycleLine
+            cycleLine.visibility = if (content.cycleLine == null) View.GONE else View.VISIBLE
+            row.findViewById<TextView>(R.id.entry_dates).text =
+                if (content.singleDay) formatDay(entry.start)
+                else getString(R.string.schedule_entry_dates, formatDay(entry.start), formatDay(entry.end))
             val warning = row.findViewById<TextView>(R.id.entry_warning)
             when {
                 entry.cycleId !in known -> {
