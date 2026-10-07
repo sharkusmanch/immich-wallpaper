@@ -7,6 +7,10 @@ import android.os.SystemClock
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
 import dev.immichwall.api.ApiJson
+import dev.immichwall.backup.Backup
+import dev.immichwall.backup.BackupOptions
+import dev.immichwall.backup.BackupRestore
+import dev.immichwall.backup.BackupServer
 import dev.immichwall.crop.CropTarget
 import dev.immichwall.schedule.Schedule
 import dev.immichwall.schedule.ScheduleOverride
@@ -14,6 +18,9 @@ import dev.immichwall.source.SavedCycle
 import dev.immichwall.source.SourceSpec
 import dev.immichwall.util.Logg
 import javax.crypto.AEADBadTagException
+
+/** What [SettingsRepository.applyBackup] did beyond the parts that always apply. */
+data class BackupApplied(val serverApplied: Boolean)
 
 /**
  * Process-wide settings store. The API key lives in EncryptedSharedPreferences;
@@ -302,6 +309,80 @@ class SettingsRepository private constructor(ctx: Context) {
             activeCycleId = wrapped.id
             return cycles + wrapped
         }
+    }
+
+    /**
+     * A backup of the SAVED settings: cycles, active cycle, schedule and the six options,
+     * plus the connection details when [includeServer] and both an address and a key are
+     * set. The manual schedule override and everything that is bookkeeping are left out.
+     */
+    fun buildBackup(includeServer: Boolean): Backup {
+        val (cycles, activeId) = synchronized(cyclesLock) {
+            val list = cyclesConsistentWithActiveSpec()
+            val active = activeCycleId.takeIf { id -> list.any { it.id == id } }
+                ?: list.firstOrNull()?.id.orEmpty()
+            list to active
+        }
+        val server = if (includeServer && serverUrl.isNotBlank() && apiKey.isNotBlank()) {
+            BackupServer(serverUrl, awayUrl, apiKey)
+        } else null
+        return Backup(
+            exportedAt = java.time.Instant.now().toString(),
+            cycles = cycles,
+            activeCycleId = activeId,
+            schedule = schedule,
+            options = BackupOptions(
+                targetCacheCount = targetCacheCount,
+                refreshIntervalHours = refreshIntervalHours,
+                rotationMinIntervalMinutes = rotationMinIntervalMinutes,
+                qualityFilterEnabled = qualityFilterEnabled,
+                syncOverCellular = syncOverCellular,
+                deriveThemeFromPhoto = deriveThemeFromPhoto,
+            ),
+            server = server,
+        )
+    }
+
+    /**
+     * Replaces the cycles, active cycle, schedule and (when present) options with [backup]'s,
+     * clears the manual schedule override, and applies its server block only when
+     * [applyServer] and [BackupRestore.serverToApply] accepts it. Does not kick syncs.
+     *
+     * Lock order: [cyclesLock] only for the cycles/active/mirrored-spec group (a leaf of the
+     * existing order, like [activateCycle]); the secure store (its own lock) is touched
+     * after that block is released, so the two locks are never nested here.
+     */
+    fun applyBackup(backup: Backup, applyServer: Boolean): BackupApplied {
+        synchronized(cyclesLock) {
+            // An empty cycle list would leave the sync pipeline with no source: keep what we have.
+            val active = backup.cycles.firstOrNull { it.id == backup.activeCycleId }
+                ?: backup.cycles.firstOrNull()
+            if (active != null) {
+                persistCyclesLocked(backup.cycles)
+                sourceSpec = active.spec
+                activeCycleId = active.id
+            }
+        }
+        schedule = backup.schedule
+        scheduleOverride = null
+        backup.options?.let {
+            val o = BackupRestore.sanitizeOptions(it)
+            targetCacheCount = o.targetCacheCount
+            refreshIntervalHours = o.refreshIntervalHours
+            rotationMinIntervalMinutes = o.rotationMinIntervalMinutes
+            qualityFilterEnabled = o.qualityFilterEnabled
+            syncOverCellular = o.syncOverCellular
+            deriveThemeFromPhoto = o.deriveThemeFromPhoto
+        }
+        val server = if (applyServer) backup.server?.let(BackupRestore::serverToApply) else null
+        if (server != null) {
+            apiKey = server.apiKey
+            serverUrl = server.serverUrl
+            awayUrl = server.awayUrl
+            lastGoodBaseUrl = ""
+        }
+        Logg.d(TAG, "backup applied: ${backup.cycleCount} cycles, serverApplied=${server != null}")
+        return BackupApplied(serverApplied = server != null)
     }
 
     var isConfigured: Boolean
