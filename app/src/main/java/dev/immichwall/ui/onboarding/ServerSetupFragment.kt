@@ -51,20 +51,21 @@ class ServerSetupFragment : Fragment(R.layout.fragment_server_setup) {
     /** True from the view's creation until its saved state is back in the fields. */
     private var settingUpFields = false
 
-    /** A backup is being applied: nothing here may store or test the fields in between. */
-    private var restoring = false
-
     /** Offered in first-run setup only, in place of typing the address and key. */
     private val restore = SettingsRestoreFlow(
         this,
         serverUse = ServerUse.USED,
-        onBusy = { busy ->
-            restoring = busy
-            view?.findViewById<Button>(R.id.server_restore)?.isEnabled = !busy
-        },
+        // Nothing here may store or test the fields while a backup is being applied.
+        onBusy = { view?.let(::enableButtons) },
         // Without a server block applied the address and key are still to be entered: the
         // fields stay as they are, and what was restored is picked up by Continue.
         onRestored = { serverApplied -> if (serverApplied) view?.let(::testRestoredServer) },
+        // The key or an address may have been stored before it failed: show what is there
+        // now, untested, rather than fields that Continue would store over it unseen.
+        onUnfinished = {
+            val settings = SettingsRepository.get(requireContext())
+            if (settings.serverUrl.isNotBlank() || settings.apiKey.isNotBlank()) view?.let(::showStoredServer)
+        },
     )
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
@@ -106,28 +107,24 @@ class ServerSetupFragment : Fragment(R.layout.fragment_server_setup) {
                     when (state) {
                         WizardViewModel.ServerTestState.Idle -> {
                             progress.visibility = View.GONE
-                            testButton.isEnabled = true
                             checksContainer.removeAllViews()
-                            continueButton.isEnabled = false
                         }
                         WizardViewModel.ServerTestState.Running -> {
                             progress.visibility = View.VISIBLE
-                            testButton.isEnabled = false
                             checksContainer.removeAllViews()
-                            continueButton.isEnabled = false
                         }
                         is WizardViewModel.ServerTestState.Done -> {
                             progress.visibility = View.GONE
-                            testButton.isEnabled = true
                             renderResults(checksContainer, state.results)
-                            val passed = state.results.isNotEmpty() && state.results.all { it.ok }
-                            continueButton.isEnabled = passed
-                            // Once per restore: the flag lives with the test, so a
-                            // recreation neither loses it mid-test nor finds it again after.
-                            if (vm.continueWhenTestPasses) {
-                                vm.continueWhenTestPasses = false
-                                if (passed) continueSetup(view)
-                            }
+                        }
+                    }
+                    enableButtons(view)
+                    if (state is WizardViewModel.ServerTestState.Done) {
+                        // Once per restore: the flag lives with the test, so a
+                        // recreation neither loses it mid-test nor finds it again after.
+                        if (vm.continueWhenTestPasses) {
+                            vm.continueWhenTestPasses = false
+                            if (state.passed) continueSetup(view)
                         }
                     }
                 }
@@ -140,8 +137,31 @@ class ServerSetupFragment : Fragment(R.layout.fragment_server_setup) {
         // The same test MainActivity uses to choose between the wizard and the status screen.
         if (!settings.isConfigured) {
             view.findViewById<View>(R.id.server_restore_section).visibility = View.VISIBLE
-            view.findViewById<Button>(R.id.server_restore).setOnClickListener { restore.start() }
+            view.findViewById<Button>(R.id.server_restore).setOnClickListener {
+                // Going on by itself is over once the user starts something else here.
+                vm.continueWhenTestPasses = false
+                restore.start()
+            }
         }
+    }
+
+    override fun onDestroyView() {
+        // Leaving the screen (not a recreation) while a restored server is being tested:
+        // coming back must not jump ahead on a result the user did not wait for.
+        if (!requireActivity().isChangingConfigurations) vm.continueWhenTestPasses = false
+        super.onDestroyView()
+    }
+
+    private val WizardViewModel.ServerTestState.passed: Boolean
+        get() = this is WizardViewModel.ServerTestState.Done && results.isNotEmpty() && results.all { it.ok }
+
+    /** Test unless one is running, Continue only on an all-green result, and none of the three while a backup is being applied. */
+    private fun enableButtons(view: View) {
+        val state = vm.serverTest.value
+        val idle = !restore.isApplying
+        view.findViewById<Button>(R.id.server_test).isEnabled = idle && state != WizardViewModel.ServerTestState.Running
+        view.findViewById<Button>(R.id.server_continue).isEnabled = idle && state.passed
+        view.findViewById<Button>(R.id.server_restore).isEnabled = idle
     }
 
     override fun onViewStateRestored(savedInstanceState: Bundle?) {
@@ -174,7 +194,7 @@ class ServerSetupFragment : Fragment(R.layout.fragment_server_setup) {
 
     /** "Test connection". False when the fields cannot be tested as they are. */
     private fun startTest(view: View): Boolean {
-        if (restoring) return false
+        if (restore.isApplying) return false
         val url = normalizeUrl(fieldText(view, R.id.server_url))
         val away = normalizeUrl(fieldText(view, R.id.server_away))
         val key = fieldText(view, R.id.server_key).trim()
@@ -200,16 +220,21 @@ class ServerSetupFragment : Fragment(R.layout.fragment_server_setup) {
      * settings as when the screen is opened, and tests them as "Test connection" does.
      */
     private fun testRestoredServer(view: View) {
+        showStoredServer(view)
+        vm.continueWhenTestPasses = startTest(view)
+    }
+
+    /** Puts the stored address, away address and key in the fields; the edit resets any test result. */
+    private fun showStoredServer(view: View) {
         val settings = SettingsRepository.get(requireContext())
         view.findViewById<TextInputEditText>(R.id.server_url).setText(settings.serverUrl)
         view.findViewById<TextInputEditText>(R.id.server_away).setText(settings.awayUrl)
         view.findViewById<TextInputEditText>(R.id.server_key).setText(settings.apiKey)
-        vm.continueWhenTestPasses = startTest(view)
     }
 
     /** "Continue": stores the tested fields and goes to the next step. */
     private fun continueSetup(view: View) {
-        if (restoring) return
+        if (restore.isApplying) return
         val settings = SettingsRepository.get(requireContext())
         val vm = vm
         val url = normalizeUrl(fieldText(view, R.id.server_url))

@@ -87,6 +87,9 @@ class SettingsRestoreFlow(
         })
     }
 
+    /** True while a restore is being applied; what [onBusy] last reported may be older. */
+    val isApplying: Boolean get() = model.applying.value
+
     fun start() {
         // A second tap while the picker is opening, a file is being read, a confirmation is
         // up or a restore is being applied.
