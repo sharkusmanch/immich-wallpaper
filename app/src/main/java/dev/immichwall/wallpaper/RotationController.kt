@@ -359,7 +359,8 @@ object RotationController {
             }
         }
         val cache = PhotoCacheManager.get(ctx)
-        // Only the active cycle's photos are eligible (all of them while it has none cached).
+        // Only the active cycle's photos are eligible; while it has none cached the cycle
+        // on screen keeps rotating (see CachePolicy.nextToShow).
         val activeKey = dev.immichwall.source.CycleKeys.activeKey(settings).orEmpty()
         // Peek-then-commit: nothing (cursor, shown-marks) moves until the new photo is
         // decoded AND the screen is still off, so an aborted advance leaves no trace.

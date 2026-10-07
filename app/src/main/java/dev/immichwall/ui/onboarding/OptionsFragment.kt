@@ -73,6 +73,7 @@ class OptionsFragment : Fragment(R.layout.fragment_options) {
         continueButton.setOnClickListener {
             val intervalBefore = settings.refreshIntervalHours
             val cellularBefore = settings.syncOverCellular
+            val qualityBefore = settings.qualityFilterEnabled
             settings.syncOverCellular = cellularSwitch.isChecked
             settings.rotationMinIntervalMinutes = when (rotationGroup.checkedRadioButtonId) {
                 R.id.options_rotation_5m -> 5
@@ -97,6 +98,12 @@ class OptionsFragment : Fragment(R.layout.fragment_options) {
                     settings.syncOverCellular != cellularBefore
                 ) {
                     SyncScheduler.ensurePeriodic(requireContext().applicationContext, forceReplace = true)
+                }
+                // The quality switch is part of every cycle's cache key, so the active
+                // cycle has nothing cached under its new key until a sync lands a photo:
+                // start one now instead of waiting for the next periodic run.
+                if (settings.isConfigured && settings.qualityFilterEnabled != qualityBefore) {
+                    SyncScheduler.kickManualRefresh(requireContext().applicationContext)
                 }
                 parentFragmentManager.popBackStack()
             } else {

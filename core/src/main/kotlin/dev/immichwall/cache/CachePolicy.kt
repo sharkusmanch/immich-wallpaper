@@ -6,8 +6,9 @@ import kotlin.math.max
 
 /**
  * Pure selection rules over the cache manifest. The cache is partitioned by
- * [CacheEntry.sourceKey] (one key per cycle): rotation only draws from the active cycle,
- * and photos of cycles the schedule no longer needs are purged.
+ * [CacheEntry.sourceKey] (one key per cycle): rotation only draws from the active cycle
+ * (or, until that has a photo, from the cycle already on screen: never from one that was
+ * only prefetched), and photos of cycles the schedule no longer needs are purged.
  */
 object CachePolicy {
 
@@ -40,12 +41,23 @@ object CachePolicy {
     /**
      * The photo the next advance should show: least-recently-shown (never-shown first,
      * oldest-added among those) among the ACTIVE cycle's entries, excluding the one on
-     * screen. While the active cycle has nothing cached, every entry is eligible so the
-     * wallpaper never goes blank.
+     * screen.
+     *
+     * While the active cycle has nothing cached, the wallpaper keeps rotating within the
+     * cycle of the photo on screen ([current]), so the previous set stays up. The cache also
+     * holds cycles prefetched for the days ahead, and their never-shown photos would
+     * otherwise sort first: a birthday album must not appear a day early. When that cycle
+     * has nothing but the photo on screen the answer is null (keep it). Every entry is
+     * eligible only when nothing is on screen or the cache holds nothing of the on-screen
+     * cycle, where the alternative is a blank wallpaper.
      */
     fun nextToShow(entries: List<CacheEntry>, current: CacheEntry?, activeKey: String): CacheEntry? {
         val ofActive = entries.filter { it.sourceKey == activeKey }
-        val pool = ofActive.ifEmpty { entries }
+        val pool = when {
+            ofActive.isNotEmpty() -> ofActive
+            current == null -> entries
+            else -> entries.filter { it.sourceKey == current.sourceKey }.ifEmpty { entries }
+        }
         return pool.asSequence()
             .filter { current == null || !sameEntry(it, current) }
             .minWithOrNull(compareBy({ it.lastShownAt }, { it.shownCount }, { it.addedAt }))

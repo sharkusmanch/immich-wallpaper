@@ -52,6 +52,28 @@ class CachePolicyTest {
         assertEquals(id(2), CachePolicy.nextToShow(entries, current = entries[0], activeKey = xmas)?.assetId)
     }
 
+    @Test fun `a prefetched cycle is never shown before it is active`() {
+        val newYear = "cccccccccccc3333|q:prefer"
+        val onScreen = e(1, fall, lastShown = 500, shown = 3)
+        val seen = e(2, fall, lastShown = 400, shown = 2)
+        // Never shown, so it would sort ahead of everything the previous set has left.
+        val prefetched = listOf(e(3, newYear), e(4, newYear))
+        // xmas is active and has nothing cached yet: the previous set keeps rotating.
+        val next = CachePolicy.nextToShow(listOf(onScreen, seen) + prefetched, current = onScreen, activeKey = xmas)
+        assertEquals(id(2), next?.assetId)
+        assertEquals(fall, next?.sourceKey)
+        // With only the photo on screen left in the previous set, that photo stays up.
+        assertNull(CachePolicy.nextToShow(listOf(onScreen) + prefetched, current = onScreen, activeKey = xmas))
+    }
+
+    @Test fun `with nothing on screen and nothing active any cached photo will do`() {
+        val entries = listOf(e(1, fall, lastShown = 10, shown = 1), e(2, fall))
+        assertEquals(id(2), CachePolicy.nextToShow(entries, current = null, activeKey = xmas)?.assetId)
+        // The photo on screen is of a cycle the cache no longer holds at all.
+        val gone = e(9, "cccccccccccc3333|q:prefer")
+        assertEquals(id(2), CachePolicy.nextToShow(entries, current = gone, activeKey = xmas)?.assetId)
+    }
+
     @Test fun `same asset cached for two cycles is two entries`() {
         val a = e(1, fall)
         val b = e(1, xmas)
