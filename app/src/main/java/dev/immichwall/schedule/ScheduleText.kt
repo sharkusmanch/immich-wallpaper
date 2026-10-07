@@ -25,13 +25,13 @@ object ScheduleText {
         lines += if (now == null) {
             ctx.getString(R.string.schedule_summary_none)
         } else {
-            ctx.getString(R.string.schedule_summary_today, entryLabel(ctx, schedule, now), names[now.cycleId].orEmpty())
+            ctx.getString(R.string.schedule_summary_today, entryLabel(ctx, schedule, now, names), names[now.cycleId].orEmpty())
         }
         ScheduleResolver.nextChange(schedule, today, known)?.let { (date, next) ->
             lines += if (next == null) {
                 ctx.getString(R.string.schedule_summary_next_none, date.format(dayFormat))
             } else {
-                ctx.getString(R.string.schedule_summary_next, date.format(dayFormat), entryLabel(ctx, schedule, next))
+                ctx.getString(R.string.schedule_summary_next, date.format(dayFormat), entryLabel(ctx, schedule, next, names))
             }
         }
         if (plan.overrideActive) {
@@ -40,8 +40,19 @@ object ScheduleText {
         return lines.joinToString("\n")
     }
 
-    /** The winning entry's name, or "default" when no entry matched. */
-    fun entryLabel(ctx: Context, schedule: Schedule, resolution: Resolution): String =
-        resolution.entryId?.let { id -> schedule.entries.firstOrNull { it.id == id }?.name }
-            ?: ctx.getString(R.string.schedule_default_label)
+    /**
+     * What to call the entry that won: its name, or its cycle's name when it was left
+     * unnamed (so the label follows the cycle if that is changed later), or "default" when
+     * no entry matched.
+     */
+    fun entryLabel(
+        ctx: Context,
+        schedule: Schedule,
+        resolution: Resolution,
+        cycleNames: Map<String, String>,
+    ): String {
+        val entry = resolution.entryId?.let { id -> schedule.entries.firstOrNull { it.id == id } }
+            ?: return ctx.getString(R.string.schedule_default_label)
+        return entry.name.ifBlank { cycleNames[entry.cycleId].orEmpty() }
+    }
 }

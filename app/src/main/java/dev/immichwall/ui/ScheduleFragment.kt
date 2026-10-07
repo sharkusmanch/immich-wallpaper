@@ -37,9 +37,14 @@ class ScheduleFragment : Fragment(R.layout.fragment_schedule) {
     private val dayFormat = DateTimeFormatter.ofPattern("MMM d")
     private val fullDayFormat = DateTimeFormatter.ofPattern("MMM d, yyyy")
 
-    /** The order the default-cycle dropdown lists them in. */
     private fun cycles(settings: SettingsRepository): List<SavedCycle> =
         settings.cyclesConsistentWithActiveSpec().sortedBy { it.name.lowercase() }
+
+    /**
+     * Exactly the list the default-cycle dropdown is showing. A tapped position is looked
+     * up here, not in a fresh read of the settings, which could have changed since.
+     */
+    private var renderedCycles: List<SavedCycle> = emptyList()
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
@@ -57,15 +62,19 @@ class ScheduleFragment : Fragment(R.layout.fragment_schedule) {
         // Fires only for a tap on a menu item, never for render()'s setText.
         view.findViewById<MaterialAutoCompleteTextView>(R.id.schedule_default)
             .setOnItemClickListener { _, _, position, _ ->
-                val settings = SettingsRepository.get(requireContext())
-                val picked = cycles(settings).getOrNull(position)?.id ?: return@setOnItemClickListener
-                val schedule = settings.schedule
+                val picked = renderedCycles.getOrNull(position)?.id ?: return@setOnItemClickListener
+                val schedule = SettingsRepository.get(requireContext()).schedule
                 if (picked != schedule.defaultCycleId) save(schedule.copy(defaultCycleId = picked))
             }
 
         view.findViewById<Button>(R.id.schedule_add).setOnClickListener { editEntry(null) }
-        view.findViewById<Button>(R.id.schedule_check).setOnClickListener {
-            pickDate("schedule-check") { date -> showCheckResult(date) }
+        view.findViewById<Button>(R.id.schedule_check).setOnClickListener { pickDate(TAG_CHECK) }
+
+        // A date picker that was open when the activity was recreated (unfolding does that)
+        // comes back without its listener; without this its OK button would do nothing.
+        for (tag in listOf(TAG_CHECK, TAG_DEBUG)) {
+            @Suppress("UNCHECKED_CAST")
+            (parentFragmentManager.findFragmentByTag(tag) as? MaterialDatePicker<Long>)?.let { listen(it, tag) }
         }
 
         if (BuildConfig.DEBUG) {
@@ -74,12 +83,7 @@ class ScheduleFragment : Fragment(R.layout.fragment_schedule) {
             // These only STORE the date. Applying it here would switch cycles through the
             // UI path and the screen-off / screen-on path would never get tested: lock the
             // phone after setting a date and that path picks it up.
-            debugButton.setOnClickListener {
-                pickDate("schedule-debug") { date ->
-                    SettingsRepository.get(requireContext()).debugToday = date.toString()
-                    render()
-                }
-            }
+            debugButton.setOnClickListener { pickDate(TAG_DEBUG) }
             debugButton.setOnLongClickListener {
                 SettingsRepository.get(requireContext()).debugToday = ""
                 render()
@@ -132,6 +136,7 @@ class ScheduleFragment : Fragment(R.layout.fragment_schedule) {
         view.findViewById<MaterialSwitch>(R.id.schedule_enabled).isChecked = schedule.enabled
         view.findViewById<TextView>(R.id.schedule_summary).text = ScheduleText.summary(requireContext(), settings)
 
+        renderedCycles = cycles
         val defaultDropdown = view.findViewById<MaterialAutoCompleteTextView>(R.id.schedule_default)
         defaultDropdown.setSimpleItems(cycles.map { it.name }.toTypedArray())
         // filter = false: the text is a label, not a query, and must not narrow the list.
@@ -146,7 +151,9 @@ class ScheduleFragment : Fragment(R.layout.fragment_schedule) {
         val inflater = LayoutInflater.from(requireContext())
         entries.forEachIndexed { index, entry ->
             val row = inflater.inflate(R.layout.item_schedule_entry, container, false)
-            row.findViewById<TextView>(R.id.entry_name).text = entry.name
+            // An unnamed entry goes by its cycle's name.
+            row.findViewById<TextView>(R.id.entry_name).text =
+                entry.name.ifBlank { names[entry.cycleId] ?: getString(R.string.schedule_cycle_missing) }
             row.findViewById<TextView>(R.id.entry_detail).text = getString(
                 R.string.schedule_entry_detail,
                 names[entry.cycleId] ?: getString(R.string.schedule_cycle_missing),
@@ -195,7 +202,8 @@ class ScheduleFragment : Fragment(R.layout.fragment_schedule) {
         val settings = SettingsRepository.get(requireContext())
         val cycles = cycles(settings)
         val schedule = settings.schedule
-        val resolution = ScheduleResolver.resolve(schedule, date, cycles.mapTo(HashSet()) { it.id })
+        val names = cycles.associate { it.id to it.name }
+        val resolution = ScheduleResolver.resolve(schedule, date, names.keys)
         val day = date.format(fullDayFormat)
         view.findViewById<TextView>(R.id.schedule_check_result).text =
             if (resolution == null) {
@@ -204,19 +212,36 @@ class ScheduleFragment : Fragment(R.layout.fragment_schedule) {
                 getString(
                     R.string.schedule_check_result,
                     day,
-                    ScheduleText.entryLabel(requireContext(), schedule, resolution),
-                    cycles.firstOrNull { it.id == resolution.cycleId }?.name.orEmpty(),
+                    ScheduleText.entryLabel(requireContext(), schedule, resolution, names),
+                    names[resolution.cycleId].orEmpty(),
                 )
             }
     }
 
-    private fun pickDate(tag: String, onPicked: (LocalDate) -> Unit) {
+    /** Opens a date picker whose result is routed by [tag], so it can be re-attached after recreation. */
+    private fun pickDate(tag: String) {
         val picker = MaterialDatePicker.Builder.datePicker().build()
+        listen(picker, tag)
+        picker.show(parentFragmentManager, tag)
+    }
+
+    private fun listen(picker: MaterialDatePicker<Long>, tag: String) {
         picker.addOnPositiveButtonClickListener { millis ->
             // The picker reports the chosen day as midnight UTC.
-            onPicked(Instant.ofEpochMilli(millis).atZone(ZoneOffset.UTC).toLocalDate())
+            onDatePicked(tag, Instant.ofEpochMilli(millis).atZone(ZoneOffset.UTC).toLocalDate())
         }
-        picker.show(parentFragmentManager, tag)
+    }
+
+    private fun onDatePicked(tag: String, date: LocalDate) {
+        if (view == null) return
+        when (tag) {
+            TAG_CHECK -> showCheckResult(date)
+            // Only STORES the date (see onViewCreated): the lock/unlock path applies it.
+            TAG_DEBUG -> {
+                SettingsRepository.get(requireContext()).debugToday = date.toString()
+                render()
+            }
+        }
     }
 
     private fun <T> List<T>.swapped(a: Int, b: Int): List<T> =
@@ -225,4 +250,9 @@ class ScheduleFragment : Fragment(R.layout.fragment_schedule) {
             list[a] = list[b]
             list[b] = moved
         }
+
+    private companion object {
+        const val TAG_CHECK = "schedule-check"
+        const val TAG_DEBUG = "schedule-debug"
+    }
 }

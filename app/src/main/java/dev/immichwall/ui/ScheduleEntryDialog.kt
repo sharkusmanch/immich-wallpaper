@@ -28,10 +28,16 @@ import java.util.UUID
  */
 class ScheduleEntryDialog : DialogFragment() {
 
-    /** Selected positions, in [SLOT_CYCLE]..[SLOT_END_DAY] order. Survives rotation and unfolding via saved state. */
-    private var selection = IntArray(SLOT_COUNT)
+    /** Selected month and day positions, in [SLOT_START_MONTH]..[SLOT_END_DAY] order. */
+    private var dates = IntArray(SLOT_COUNT)
 
-    /** Same order in [onCreateDialog] and [save]: the cycle dropdown stores a position. */
+    /**
+     * The chosen cycle, by id — never by list position: the list is read again at save
+     * time and after the process is recreated, and a position would then point at whatever
+     * sits there. Null = none chosen.
+     */
+    private var cycleId: String? = null
+
     private fun cycles(): List<SavedCycle> =
         SettingsRepository.get(requireContext()).cyclesConsistentWithActiveSpec().sortedBy { it.name.lowercase() }
 
@@ -51,29 +57,34 @@ class ScheduleEntryDialog : DialogFragment() {
         val start = existing?.let { ScheduleResolver.parseMonthDay(it.start) } ?: today
         val end = existing?.let { ScheduleResolver.parseMonthDay(it.end) } ?: start
 
-        selection = savedInstanceState?.getIntArray(STATE_SELECTION)?.takeIf { it.size == SLOT_COUNT }
-            ?: intArrayOf(
-                cycles.indexOfFirst { it.id == existing?.cycleId }.coerceAtLeast(0),
-                start.monthValue - 1,
-                start.dayOfMonth - 1,
-                end.monthValue - 1,
-                end.dayOfMonth - 1,
-            )
+        dates = savedInstanceState?.getIntArray(STATE_DATES)?.takeIf { it.size == SLOT_COUNT }
+            ?: intArrayOf(start.monthValue - 1, start.dayOfMonth - 1, end.monthValue - 1, end.dayOfMonth - 1)
+        cycleId = when {
+            savedInstanceState != null -> savedInstanceState.getString(STATE_CYCLE_ID)
+            // A new entry starts on the first cycle.
+            existing == null -> cycles.firstOrNull()?.id
+            // An entry whose cycle was deleted starts with none chosen, so that Save cannot
+            // quietly re-point it at whichever cycle happens to be first.
+            else -> existing.cycleId.takeIf { id -> cycles.any { it.id == id } }
+        }
 
-        fun bind(slot: Int, id: Int, items: List<String>) {
+        fun bind(id: Int, items: List<String>, selected: Int, onPick: (Int) -> Unit) {
             val dropdown = content.findViewById<MaterialAutoCompleteTextView>(id)
             dropdown.setSimpleItems(items.toTypedArray())
             // filter = false: the text is a label, not a query, and must not narrow the list.
-            items.getOrNull(selection[slot])?.let { dropdown.setText(it, false) }
-            dropdown.setOnItemClickListener { _, _, position, _ -> selection[slot] = position }
+            items.getOrNull(selected)?.let { dropdown.setText(it, false) }
+            dropdown.setOnItemClickListener { _, _, position, _ -> onPick(position) }
         }
 
         content.findViewById<TextInputEditText>(R.id.entry_edit_name).setText(existing?.name.orEmpty())
-        bind(SLOT_CYCLE, R.id.entry_edit_cycle, cycles.map { it.name })
-        bind(SLOT_START_MONTH, R.id.entry_edit_start_month, months)
-        bind(SLOT_START_DAY, R.id.entry_edit_start_day, days)
-        bind(SLOT_END_MONTH, R.id.entry_edit_end_month, months)
-        bind(SLOT_END_DAY, R.id.entry_edit_end_day, days)
+        // `cycles` here is the very list the dropdown shows, so its position is safe to use.
+        bind(R.id.entry_edit_cycle, cycles.map { it.name }, cycles.indexOfFirst { it.id == cycleId }) { position ->
+            cycleId = cycles[position].id
+        }
+        bind(R.id.entry_edit_start_month, months, dates[SLOT_START_MONTH]) { dates[SLOT_START_MONTH] = it }
+        bind(R.id.entry_edit_start_day, days, dates[SLOT_START_DAY]) { dates[SLOT_START_DAY] = it }
+        bind(R.id.entry_edit_end_month, months, dates[SLOT_END_MONTH]) { dates[SLOT_END_MONTH] = it }
+        bind(R.id.entry_edit_end_day, days, dates[SLOT_END_DAY]) { dates[SLOT_END_DAY] = it }
 
         return MaterialAlertDialogBuilder(requireContext())
             .setTitle(if (existing == null) R.string.schedule_entry_new else R.string.schedule_entry_edit)
@@ -86,26 +97,39 @@ class ScheduleEntryDialog : DialogFragment() {
 
     override fun onSaveInstanceState(outState: Bundle) {
         super.onSaveInstanceState(outState)
-        outState.putIntArray(STATE_SELECTION, selection)
+        outState.putIntArray(STATE_DATES, dates)
+        outState.putString(STATE_CYCLE_ID, cycleId)
     }
 
     override fun onStart() {
         super.onStart()
         val dialog = requireDialog() as AlertDialog
-        dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
-            if (save(dialog)) dismiss()
+        val saveButton = dialog.getButton(AlertDialog.BUTTON_POSITIVE)
+        saveButton.setOnClickListener {
+            if (save(dialog)) {
+                // dismiss() takes effect asynchronously; a second tap must not add a second entry.
+                saveButton.isEnabled = false
+                dismiss()
+            }
         }
     }
 
-    /** Validates and stores the entry. False (with a toast) when a date such as Feb 30 was picked. */
+    /**
+     * Validates and stores the entry. False (with a toast, dialog left open) when no cycle
+     * is chosen or a date such as Feb 30 was picked.
+     */
     private fun save(dialog: AlertDialog): Boolean {
-        val start = monthDay(selection[SLOT_START_MONTH], selection[SLOT_START_DAY])
-        val end = monthDay(selection[SLOT_END_MONTH], selection[SLOT_END_DAY])
+        val cycle = cycles().firstOrNull { it.id == cycleId }
+        if (cycle == null) {
+            Toast.makeText(requireContext(), R.string.schedule_entry_pick_cycle, Toast.LENGTH_SHORT).show()
+            return false
+        }
+        val start = monthDay(dates[SLOT_START_MONTH], dates[SLOT_START_DAY])
+        val end = monthDay(dates[SLOT_END_MONTH], dates[SLOT_END_DAY])
         if (ScheduleResolver.parseMonthDay(start) == null || ScheduleResolver.parseMonthDay(end) == null) {
             Toast.makeText(requireContext(), R.string.schedule_entry_bad_date, Toast.LENGTH_SHORT).show()
             return false
         }
-        val cycle = cycles().getOrNull(selection[SLOT_CYCLE]) ?: return false
 
         val settings = SettingsRepository.get(requireContext())
         val schedule = settings.schedule
@@ -113,7 +137,9 @@ class ScheduleEntryDialog : DialogFragment() {
         val typedName = dialog.findViewById<TextInputEditText>(R.id.entry_edit_name)?.text?.toString()?.trim().orEmpty()
         val entry = ScheduleEntry(
             id = existing?.id ?: UUID.randomUUID().toString(),
-            name = typedName.ifBlank { cycle.name },
+            // Blank stays blank: an unnamed entry is shown under its cycle's name, and so
+            // keeps following the cycle if that is changed later.
+            name = typedName,
             cycleId = cycle.id,
             start = start,
             end = end,
@@ -134,14 +160,14 @@ class ScheduleEntryDialog : DialogFragment() {
         const val REQUEST_KEY = "schedule_entry_saved"
         const val TAG = "ScheduleEntryDialog"
         private const val ARG_ENTRY_ID = "entryId"
-        private const val STATE_SELECTION = "selection"
+        private const val STATE_DATES = "dates"
+        private const val STATE_CYCLE_ID = "cycleId"
 
-        private const val SLOT_CYCLE = 0
-        private const val SLOT_START_MONTH = 1
-        private const val SLOT_START_DAY = 2
-        private const val SLOT_END_MONTH = 3
-        private const val SLOT_END_DAY = 4
-        private const val SLOT_COUNT = 5
+        private const val SLOT_START_MONTH = 0
+        private const val SLOT_START_DAY = 1
+        private const val SLOT_END_MONTH = 2
+        private const val SLOT_END_DAY = 3
+        private const val SLOT_COUNT = 4
 
         /** [entryId] null = a new entry. */
         fun forEntry(entryId: String?): ScheduleEntryDialog =

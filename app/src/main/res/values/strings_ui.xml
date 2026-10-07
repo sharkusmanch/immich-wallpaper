@@ -222,6 +222,7 @@
     <string name="schedule_entry_day_hint">Day</string>
     <string name="schedule_entry_save">Save</string>
     <string name="schedule_entry_bad_date">That date does not exist</string>
+    <string name="schedule_entry_pick_cycle">Pick a cycle first</string>
     <string name="schedule_no_cycles">Save a cycle first</string>
     <string name="schedule_cycle_missing">deleted cycle</string>
     <string name="schedule_check">Check a date</string>
