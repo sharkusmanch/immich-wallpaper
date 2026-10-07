@@ -3,9 +3,8 @@ name: ci
 on:
   push:
     branches: ["**"]
-    tags: ["v*"]
 
-# Read-only by default; only the release job, which runs for tags, may write.
+# Read-only. Publishing a release is the separate release.yml workflow, run by a v* tag.
 permissions:
   contents: read
 
@@ -69,8 +68,8 @@ jobs:
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
 
-      # What the release job publishes. Uploaded on every run, not only for tags, so the
-      # hand-off between the two jobs is exercised by ordinary pushes.
+      # Uploaded on every run so the signed release build is exercised by ordinary pushes;
+      # release.yml builds its own APK from the tag.
       - uses: actions/upload-artifact@v4
         with:
           name: app-release
@@ -97,25 +96,3 @@ jobs:
             core/build/reports/tests
             app/build/reports
           if-no-files-found: ignore
-
-  # Publishing is the only step that needs to write to the repository, so it has its own
-  # job and its own token scope. It never sees the signing secrets: it publishes the APK
-  # the build job signed.
-  release:
-    if: startsWith(github.ref, 'refs/tags/v')
-    needs: build
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    steps:
-      - uses: actions/download-artifact@v4
-        with:
-          name: app-release
-
-      - name: Publish release
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          cp app-release.apk "immich-wallpaper-${GITHUB_REF_NAME#v}.apk"
-          gh release create "$GITHUB_REF_NAME" "immich-wallpaper-${GITHUB_REF_NAME#v}.apk" \
-            --repo "$GITHUB_REPOSITORY" --title "$GITHUB_REF_NAME" --generate-notes
