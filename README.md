@@ -15,7 +15,6 @@
 > It adds a date-of-year **schedule** that switches cycles automatically, keeps each
 > cycle's photos apart so a switch is clean, crops for foldables, and accepts HTTPS
 > servers only. It installs beside the original (application ID `io.github.sharkusmanch.immichwall`).
-> Earlier builds used a different application ID, so they install separately and do not upgrade in place; settings move across with Back up settings, then Restore from a backup.
 
 An Android **live wallpaper** for self-hosted photo libraries: pick people, albums,
 searches or date ranges from your library, and your lock and home screen show a
@@ -27,6 +26,11 @@ different photo every time you wake the phone.
 > Immich server; if you aren't self-hosting your photos yet,
 > [start there](https://immich.app). Your library will thank you.
 
+<p align="center">
+  <a href="https://apps.obtainium.imranr.dev/redirect?r=obtainium%3A%2F%2Fadd%2Fhttps%3A%2F%2Fgithub.com%2Fsharkusmanch%2Fimmich-wallpaper"><img src="https://raw.githubusercontent.com/ImranR98/Obtainium/main/assets/graphics/badge_obtainium.png" alt="Get it on Obtainium" height="56"></a>
+  <a href="https://github.com/sharkusmanch/immich-wallpaper/releases/latest"><img src="https://img.shields.io/github/v/release/sharkusmanch/immich-wallpaper?label=Latest%20release&style=for-the-badge" alt="Latest release" height="56"></a>
+</p>
+
 ## How it works
 
 The app talks to your Immich server's HTTP API with an API key you create. A background
@@ -34,7 +38,7 @@ sync asks the server for photos matching your configuration (people, album, smar
 search, location, favorites, memories, or any combination), downloads the full
 resolution images, crops them to your screen — centered on the faces that matter, using
 Immich's own face detection — and keeps a rotating cache of finished wallpapers on the
-device. A small wallpaper engine then serves those photos, advancing to the next one
+device, kept apart for each cycle. A small wallpaper engine then serves those photos, advancing to the next one
 each time the screen turns off.
 
 Syncs run a few times a day (configurable), on Wi-Fi only by default or also over
@@ -50,30 +54,34 @@ on-device cache, so it keeps working with no connection at all.
   Picking a cycle by hand holds until the schedule next changes.
 - **Wallpaper cycles** — save any number of photo configurations and switch between
   them with one tap; build and preview new ones while the current one keeps running.
+  Each cycle has its own cache, so a switch never mixes in the previous cycle's photos.
 - **Photo sources** — people (one or several, any-of or all-together), albums,
   free-text CLIP smart search ("at the beach"), location, favorites, on-this-day
   memories (with day-window and years-back options), the entire library, or a **custom
   filter** combining people + album + search phrase + place + favorites + a taken-date
   range.
 - **Quality filtering** — screenshots, documents, blurry and badly exposed shots are
-  skipped, and a per-cycle "people in photos" preference keeps face-less photos (menus,
-  signs, receipts) off your wallpaper. All heuristics are local — EXIF, face geometry,
+  skipped, and a per-cycle "People in photos" preference (**Any**, **Prefer** or **Require**) can keep
+  face-less photos (menus, signs, receipts) off your wallpaper. All heuristics are local — EXIF, face geometry,
   sharpness — no ML downloads.
 - **Face-aware cropping** — portrait crops are anchored on the faces of the people the
-  cycle is about.
+  cycle is about. On a foldable, photos are cropped to suit every screen shape the
+  wallpaper has been shown on and slid to keep the faces in view on whichever is active.
 - **Full resolution images** — originals (HEIC/JPEG) are downloaded and processed
   on-device.
 - **No repeats** — least-recently-shown rotation across the cache.
 - **Rotation cadence** — a new photo at every screen wake (default), or at most every
   5 minutes / hour / 6 hours / day.
-- **Back up and restore** — the settings screen can save your cycles, schedule and options
-  to a file and restore them from one (also offered on the first-run wizard's source step).
-  The server address and API key go in the file only if you tick that box when saving, and
+- **Back up and restore** — **Back up settings** and **Restore settings** on the settings
+  screen (the tool icon on the status screen) save your cycles, schedule and options to a
+  file and restore them from one; the first-run wizard's **Choose a photo source** step
+  offers **Restore from a backup**. The server address and API key go in the file only if you tick that box when saving, and
   they are stored unencrypted; restoring replaces yours only if you tick that choice, and
   the wizard never does. Photos are not included.
 - **Wi-Fi or mobile data** — downloads wait for Wi-Fi unless you opt into cellular;
   a separate away-URL (e.g. a VPN/Tailscale address) covers syncing when you're not on
-  your home network. Both addresses must be `https://`.
+  your home network. Both addresses must be `https://` — plain HTTP is refused, so a LAN server needs a
+  TLS-terminating reverse proxy in front.
 - No Google services required; no foreground service, no alarms, no analytics.
 
 ## Requirements
@@ -94,10 +102,10 @@ scope and names exactly which one is missing if validation fails.
 
 ## Install
 
-Grab the latest APK from the
-[Releases page](https://github.com/sharkusmanch/immich-wallpaper/releases) and sideload it
-(`adb install immich-wallpaper-x.y.z.apk`, or open the file on the phone). Android
-will warn about unknown sources — that's normal for sideloaded apps.
+- **Obtainium:** tap the badge at the top of this page on your phone to add Immich Wallpaper, and Obtainium will keep it updated.
+- **Manually:** download the APK from the [latest release](https://github.com/sharkusmanch/immich-wallpaper/releases/latest) and open it on your phone (or `adb install immich-wallpaper-x.y.z.apk`). Android will warn about unknown sources — that's normal for sideloaded apps; allow your browser or file manager to install them.
+
+### Verify a download
 
 Each release is built and signed by GitHub Actions from a tagged commit on `main`, and
 the build is attested. To check a download came from this repository's workflow (the first command) and arrived intact (the second):
@@ -106,6 +114,9 @@ the build is attested. To check a download came from this repository's workflow 
 gh attestation verify immich-wallpaper-x.y.z.apk -R sharkusmanch/immich-wallpaper
 sha256sum --check immich-wallpaper-x.y.z.apk.sha256   # both files in the same folder
 ```
+
+Releases are signed with a certificate whose SHA-256 fingerprint is
+`7e1c7db5ef4ce92d33b060b6b2bbe2a62358784d1926fb92ef1d17d544898e35`.
 
 ## Building from source
 
@@ -125,18 +136,24 @@ immich.server.url=https://your-immich-host
 immich.api.key=<your api key>
 ```
 
+A build you make yourself is signed with your own debug key, so it cannot be installed over a release APK or the other way round.
+
+The app installs as `io.github.sharkusmanch.immichwall`, so it can sit alongside the original app.
+
 > ⚠️ **Don't share debug APKs built with a populated `local.properties`** — the server
 > URL and API key are baked into the binary. Release builds never include them.
 
 ## Setup on the phone
 
 1. Install the APK and open the app.
-2. Enter your server URL (+ an optional away/VPN URL) and API key.
-3. Pick a photo source, preview it live, and save it as your first cycle.
+2. Enter your server URL (+ an optional away/VPN URL, both `https://`) and API key.
+3. Pick a photo source, preview it live, and save it as your first cycle — or choose
+   **Restore from a backup** to bring back cycles, schedule and options from a file.
 4. Apply the wallpaper (the system picker opens; choose *Home and lock screen*).
 
 Day to day you never open the app — photos just change. When you do, the main page
-shows the current photo, cache and sync status, and your saved cycles.
+shows the current photo, cache and sync status, and your saved cycles; the tool icon
+opens the settings screen (options, back up and restore); the schedule has its own **Edit schedule** button here.
 
 ## Privacy
 
