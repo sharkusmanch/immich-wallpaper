@@ -24,6 +24,12 @@ data class CacheEntry(
     val lastShownAt: Long = 0,
     /** Times displayed; drives most-shown-first eviction. */
     val shownCount: Int = 0,
+    /**
+     * Where the faces sit in the prepared file, as fractions of its width and height.
+     * The engine keeps this point in view on a surface narrower or shorter than the file.
+     */
+    val focusX: Float = 0.5f,
+    val focusY: Float = 0.5f,
 )
 
 /**

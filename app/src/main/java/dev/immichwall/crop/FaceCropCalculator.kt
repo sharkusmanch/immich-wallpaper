@@ -93,6 +93,37 @@ object FaceCropCalculator {
         return Rect(l, t, r, b)
     }
 
+    /**
+     * Where the faces sit inside [crop], as fractions of its width and height: `[x, y]`,
+     * the centre when there are none. Uses the same faces as [cropRect] but their true
+     * centre (no headroom), because this is the point the engine keeps in view.
+     */
+    fun focusWithin(
+        crop: Rect,
+        faces: List<AssetFaceDto>,
+        priorityPersonIds: List<String>,
+        srcW: Int,
+        srcH: Int,
+    ): FloatArray {
+        val chosen = relevantFaces(faces, priorityPersonIds)
+        if (chosen.isEmpty() || crop.width() <= 0 || crop.height() <= 0) return floatArrayOf(0.5f, 0.5f)
+        var left = Float.MAX_VALUE
+        var top = Float.MAX_VALUE
+        var right = -Float.MAX_VALUE
+        var bottom = -Float.MAX_VALUE
+        for (face in chosen) {
+            val sx = srcW.toFloat() / face.imageWidth
+            val sy = srcH.toFloat() / face.imageHeight
+            left = min(left, face.boundingBoxX1 * sx)
+            top = min(top, face.boundingBoxY1 * sy)
+            right = max(right, face.boundingBoxX2 * sx)
+            bottom = max(bottom, face.boundingBoxY2 * sy)
+        }
+        val x = ((left + right) / 2f - crop.left) / crop.width()
+        val y = ((top + bottom) / 2f - crop.top) / crop.height()
+        return floatArrayOf(x.coerceIn(0f, 1f), y.coerceIn(0f, 1f))
+    }
+
     /** Largest centered rect of [aspect] that fits in `srcW x srcH`. */
     private fun centeredRect(srcW: Int, srcH: Int, aspect: Float): Rect {
         val srcAspect = srcW.toFloat() / srcH

@@ -49,6 +49,8 @@ object BitmapPipeline {
         outW: Int,
         outH: Int,
         dest: File,
+        /** When given (two elements), receives where the faces sit in the result: x, y fractions. */
+        focusOut: FloatArray? = null,
     ): Boolean {
         if (outW <= 0 || outH <= 0 || !src.isFile) return false
         var wallpaper: Bitmap? = null
@@ -69,10 +71,10 @@ object BitmapPipeline {
             )
 
             wallpaper = try {
-                renderScaledCrop(src, transform, sampleSize, faces, priorityPersonIds, outW, outH)
+                renderScaledCrop(src, transform, sampleSize, faces, priorityPersonIds, outW, outH, focusOut)
             } catch (oom: OutOfMemoryError) {
                 Logg.w(TAG, "prepareWallpaper: OOM at sample=$sampleSize for ${src.name}, retrying at ${sampleSize * 2}")
-                renderScaledCrop(src, transform, sampleSize * 2, faces, priorityPersonIds, outW, outH)
+                renderScaledCrop(src, transform, sampleSize * 2, faces, priorityPersonIds, outW, outH, focusOut)
             }
             if (wallpaper == null) {
                 Logg.w(TAG, "prepareWallpaper: decode returned null for ${src.name}")
@@ -144,6 +146,7 @@ object BitmapPipeline {
         priorityPersonIds: List<String>,
         outW: Int,
         outH: Int,
+        focusOut: FloatArray?,
     ): Bitmap? {
         val decodeOpts = BitmapFactory.Options().apply { inSampleSize = sampleSize.coerceAtLeast(1) }
         val decoded = FileInputStream(src).use { BitmapFactory.decodeStream(it, null, decodeOpts) }
@@ -177,6 +180,12 @@ object BitmapPipeline {
         } catch (t: Throwable) {
             upright.recycle()
             throw t
+        }
+
+        if (focusOut != null && focusOut.size >= 2) {
+            val focus = FaceCropCalculator.focusWithin(crop, faces, priorityPersonIds, upright.width, upright.height)
+            focusOut[0] = focus[0]
+            focusOut[1] = focus[1]
         }
 
         // Defensive clamp — the calculator already stays in bounds.

@@ -16,7 +16,9 @@ import android.graphics.Shader
 import android.graphics.Typeface
 import android.service.wallpaper.WallpaperService
 import android.view.SurfaceHolder
+import dev.immichwall.crop.CropTarget
 import dev.immichwall.settings.SettingsRepository
+import dev.immichwall.sync.SyncScheduler
 import dev.immichwall.util.Logg
 import kotlin.math.max
 
@@ -180,15 +182,20 @@ class PhotoWallpaperService : WallpaperService() {
             val s0 = settingsOrNull()
             if (!isPreview && width > 0 && height > 0 && s0 != null) {
                 val s = s0
-                val differs = s.cropWidth != width || s.cropHeight != height
-                // On Android 14+ a second (lock) engine could report smaller dimensions;
-                // two engines must not fight over the crop size and re-stale the cache
-                // on every flip — only an unset or equal-or-larger surface wins.
-                val largest = width.toLong() * height >= s.cropWidth.toLong() * s.cropHeight
-                if (differs && (s.cropWidth <= 0 || largest)) {
-                    Logg.d(TAG, "surface ${width}x$height (was ${s.cropWidth}x${s.cropHeight}); persisting crop dims")
-                    s.cropWidth = width
-                    s.cropHeight = height
+                // A foldable (or rotation) hands this engine several surface shapes. Photos
+                // are prepared at the union box of all of them — widest × tallest, centred
+                // on the faces — so drawPhoto's centre-crop shows the face-centred middle
+                // on each one, and surfaces never fight over the crop size.
+                val seen = CropTarget.remember(s.seenSurfaces, width, height)
+                if (seen != s.seenSurfaces) s.seenSurfaces = seen
+                val box = CropTarget.unionBox(seen)
+                if (box != null && (s.cropWidth != box.width || s.cropHeight != box.height)) {
+                    Logg.d(TAG, "surface ${width}x$height; crop box ${box.width}x${box.height} (was ${s.cropWidth}x${s.cropHeight})")
+                    val hadBox = s.cropWidth > 0
+                    s.cropWidth = box.width
+                    s.cropHeight = box.height
+                    // Cached photos are now the wrong shape; start re-preparing them.
+                    if (hadBox) SyncScheduler.kickInitialFill(applicationContext)
                 }
             }
             awaitFirstPhotoIfNeeded()
@@ -302,9 +309,9 @@ class PhotoWallpaperService : WallpaperService() {
         }
 
         /**
-         * Full-bleed centre-crop. Ready files are exactly panel-sized so this is normally the
-         * identity transform; on aspect mismatch (stale crops after a panel-size change) the
-         * photo is scaled to cover the surface and the overflow is cropped.
+         * Full-bleed cover. Ready files are the union box of every surface shape this engine
+         * has seen, so on any one panel the photo overflows in one direction; it is scaled
+         * to cover and slid so its faces stay in view (see [CropTarget.offset]).
          */
         private fun drawPhoto(canvas: Canvas, bitmap: Bitmap, alpha: Int = 255) {
             val cw = canvas.width.toFloat()
@@ -316,7 +323,13 @@ class PhotoWallpaperService : WallpaperService() {
             val scale = max(cw / bw, ch / bh)
             drawMatrix.reset()
             drawMatrix.setScale(scale, scale)
-            drawMatrix.postTranslate((cw - bw * scale) / 2f, (ch - bh * scale) / 2f)
+            // Centre the faces, as far as the photo's edges allow. On a surface the photo
+            // exactly fits this is zero, and with a centred focus it is the plain centre-crop.
+            val focus = RotationController.focusFor(bitmap)
+            drawMatrix.postTranslate(
+                CropTarget.offset(cw, bw * scale, focus[0]),
+                CropTarget.offset(ch, bh * scale, focus[1]),
+            )
             bitmapPaint.alpha = alpha
             canvas.drawBitmap(bitmap, drawMatrix, bitmapPaint)
             bitmapPaint.alpha = 255

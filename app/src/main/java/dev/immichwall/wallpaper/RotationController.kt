@@ -84,6 +84,15 @@ object RotationController {
         }
     }
 
+    /** Focus point of each decoded bitmap. Weakly keyed, so an entry lives exactly as long as its bitmap. */
+    private val focusByBitmap: MutableMap<Bitmap, FloatArray> =
+        java.util.Collections.synchronizedMap(java.util.WeakHashMap<Bitmap, FloatArray>())
+
+    private val centerFocus = floatArrayOf(0.5f, 0.5f)
+
+    /** Where the faces sit in [bitmap] as `[x, y]` fractions; the centre when unknown. Any thread. */
+    fun focusFor(bitmap: Bitmap): FloatArray = focusByBitmap[bitmap] ?: centerFocus
+
     /** The bitmap the engine should draw right now; null until the cache has a decodable entry. */
     fun currentBitmap(): Bitmap? = current
 
@@ -387,6 +396,7 @@ object RotationController {
         }
         cache.commitShown(shown)
         settings.lastAdvanceAt = System.currentTimeMillis()
+        focusByBitmap[decoded] = floatArrayOf(shown.focusX, shown.focusY)
         swapAndRedraw(decoded)
         Logg.d(TAG, "advanced to ${shown.assetId}")
     }
@@ -422,6 +432,7 @@ object RotationController {
             if (decoded != null) {
                 // Fade only when someone could actually watch the change.
                 val pm = ctx.getSystemService(PowerManager::class.java)
+                focusByBitmap[decoded] = floatArrayOf(entry.focusX, entry.focusY)
                 swapAndRedraw(decoded, animate = animate && pm != null && pm.isInteractive)
                 Logg.d(TAG, "loaded cursor entry ${entry.assetId}")
                 return

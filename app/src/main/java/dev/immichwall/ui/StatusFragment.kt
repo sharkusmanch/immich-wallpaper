@@ -307,7 +307,11 @@ class StatusFragment : Fragment(R.layout.fragment_status) {
             .setPositiveButton(R.string.status_clear_cache_confirm) { _, _ ->
                 val appCtx = requireContext().applicationContext
                 viewLifecycleOwner.lifecycleScope.launch {
-                    withContext(Dispatchers.IO) { PhotoCacheManager.get(appCtx).clearAll() }
+                    withContext(Dispatchers.IO) {
+                        PhotoCacheManager.get(appCtx).clearAll()
+                        // The shapes are learned again as the phone is folded and rotated.
+                        SettingsRepository.get(appCtx).seenSurfaces = emptyList()
+                    }
                     RotationController.onCacheCleared()
                     SyncScheduler.kickInitialFill(appCtx)
                     reload()

@@ -7,6 +7,7 @@ import android.os.SystemClock
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
 import dev.immichwall.api.ApiJson
+import dev.immichwall.crop.CropTarget
 import dev.immichwall.schedule.Schedule
 import dev.immichwall.schedule.ScheduleOverride
 import dev.immichwall.source.SavedCycle
@@ -289,6 +290,11 @@ class SettingsRepository private constructor(ctx: Context) {
         get() = plain.getInt(KEY_CROP_HEIGHT, 0)
         set(value) { plain.edit().putInt(KEY_CROP_HEIGHT, value).commit() }
 
+    /** Distinct surface sizes the wallpaper engine has been given; [cropWidth]×[cropHeight] is their union box. */
+    var seenSurfaces: List<CropTarget.Size>
+        get() = CropTarget.decode(plain.getString(KEY_SEEN_SURFACES, "").orEmpty())
+        set(value) { plain.edit().putString(KEY_SEEN_SURFACES, CropTarget.encode(value)).commit() }
+
     var lastGoodBaseUrl: String
         get() = plain.getString(KEY_LAST_GOOD_BASE_URL, "").orEmpty()
         set(value) { plain.edit().putString(KEY_LAST_GOOD_BASE_URL, value).commit() }
@@ -565,6 +571,7 @@ class SettingsRepository private constructor(ctx: Context) {
         private const val KEY_IS_CONFIGURED = "isConfigured"
         private const val KEY_CROP_WIDTH = "cropWidth"
         private const val KEY_CROP_HEIGHT = "cropHeight"
+        private const val KEY_SEEN_SURFACES = "seenSurfaces"
         private const val KEY_LAST_GOOD_BASE_URL = "lastGoodBaseUrl"
         private const val KEY_SCHEDULE = "schedule"
         private const val KEY_SCHEDULE_OVERRIDE = "scheduleOverride"

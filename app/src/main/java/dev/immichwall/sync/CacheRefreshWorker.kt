@@ -310,7 +310,8 @@ class RefreshEngine(private val ctx: Context) {
             try {
                 val download = client.downloadAssetImage(asset.id, raw)
 
-                if (!BitmapPipeline.prepareWallpaper(raw, faces, priorityPersonIds, cropW, cropH, prepared)) {
+                val focus = floatArrayOf(0.5f, 0.5f)
+                if (!BitmapPipeline.prepareWallpaper(raw, faces, priorityPersonIds, cropW, cropH, prepared, focus)) {
                     Logg.w(TAG, "prepareWallpaper failed for ${asset.id}; skipping")
                     failed++
                     return false
@@ -334,6 +335,8 @@ class RefreshEngine(private val ctx: Context) {
                     height = cropH,
                     sourceKey = sourceKey,
                     sourceSize = download.tier,
+                    focusX = focus[0],
+                    focusY = focus[1],
                 )
                 val isReplacement = cache.containsEntry(sourceKey, asset.id)
                 if (cache.promote(entry, prepared)) {
