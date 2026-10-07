@@ -38,7 +38,8 @@ import kotlinx.coroutines.withContext
 /**
  * "Restore settings", start to finish: the system's file picker → read and decode off the
  * main thread → refuse what is not a backup, or ask ([RestoreConfirmDialog]) → apply → start
- * what every cycle change starts → say what happened.
+ * what every cycle change starts → say what happened. Before setup is finished nothing is
+ * started: the wizard's last step does that, from what is stored by then.
  *
  * Create it as a property of the host fragment (the picker must be registered before the
  * fragment is created) and call [start] from a button. Nothing is applied without the
@@ -117,7 +118,11 @@ class SettingsRestoreFlow(
         is SettingsRestoreViewModel.Event.Applied -> {
             val shown = when (event.outcome) {
                 RestoreOutcome.NOTHING_RESTORED -> BackupMessageDialog.show(fragment, R.string.restore_nothing)
-                RestoreOutcome.RESTORED -> toast(R.string.restore_done)
+                // Before setup is finished nothing is fetched yet (BackupRestore.startsSyncing).
+                RestoreOutcome.RESTORED -> toast(
+                    if (SettingsRepository.get(fragment.requireContext()).isConfigured) R.string.restore_done
+                    else R.string.restore_done_setup
+                )
                 RestoreOutcome.RESTORED_WITH_SERVER -> toast(R.string.restore_done_with_server)
                 RestoreOutcome.RESTORED_SERVER_KEPT -> BackupMessageDialog.show(fragment, R.string.restore_done_server_kept)
                 RestoreOutcome.UNFINISHED -> BackupMessageDialog.show(fragment, R.string.restore_unfinished)

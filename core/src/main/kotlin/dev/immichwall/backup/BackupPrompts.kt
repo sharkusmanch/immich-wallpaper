@@ -5,7 +5,7 @@ enum class ServerPart {
     /** The file has none: the current ones are kept. */
     NOT_IN_FILE,
 
-    /** The file has them, and this screen never applies them. */
+    /** The file has them, and this screen never applies them: they were entered a step earlier. */
     IGNORED,
 
     /** The file has them: replacing the current ones is the user's choice, off unless chosen. */
