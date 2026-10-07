@@ -17,6 +17,7 @@ import dev.immichwall.schedule.ScheduleOverride
 import dev.immichwall.source.SavedCycle
 import dev.immichwall.source.SourceSpec
 import dev.immichwall.util.Logg
+import java.io.IOException
 import javax.crypto.AEADBadTagException
 
 /**
@@ -350,7 +351,8 @@ class SettingsRepository private constructor(ctx: Context) {
      * Replaces the cycles, active cycle, schedule and (when present) options with [backup]'s,
      * clears the manual schedule override, and applies its server block only when
      * [applyServer] and [BackupRestore.serverToApply] accepts it. Does not kick syncs.
-     * A backup with no cycles applies nothing ([BackupApplied.applied] false).
+     * A backup with no cycles applies nothing ([BackupApplied.applied] false). Throws
+     * [IOException] when a commit fails, which the restore flow reports as unfinished.
      *
      * Cycles, active id, mirrored source, schedule and the override removal go out in ONE
      * plain-prefs commit under [cyclesLock], so schedule readers (which take the lock via
@@ -381,15 +383,16 @@ class SettingsRepository private constructor(ctx: Context) {
                     .putBoolean(KEY_SYNC_OVER_CELLULAR, options.syncOverCellular)
                     .putBoolean(KEY_DERIVE_THEME, options.deriveThemeFromPhoto)
             }
-            editor.commit()
+            if (!editor.commit()) throw IOException("settings not saved")
         }
         if (server != null) {
             apiKey = server.apiKey
-            plain.edit()
+            val saved = plain.edit()
                 .putString(KEY_SERVER_URL, server.serverUrl)
                 .putString(KEY_AWAY_URL, server.awayUrl)
                 .putString(KEY_LAST_GOOD_BASE_URL, "")
                 .commit()
+            if (!saved) throw IOException("server address not saved")
         }
         Logg.d(TAG, "backup applied: ${backup.cycleCount} cycles, serverApplied=${server != null}")
         return BackupApplied(applied = true, serverApplied = server != null)
