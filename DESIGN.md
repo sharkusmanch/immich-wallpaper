@@ -138,3 +138,25 @@ Contracts (exact signatures) live in `CONTRACTS.kt` notes inside each agent brie
 
 ## Phase 0 spike (before polishing anything)
 Minimal APK: hardcoded-photo engine + screen-off advance → sideload → verify on the Pixel: (a) lock+home both render engine, (b) advance at wake works from inside-app screen-off, (c) survives reboot in secondary profile, (d) AOD interaction. This de-risks the one open platform question before the full build.
+
+## Fork additions (v1.1)
+
+- **Module split.** Pure logic lives in `:core` (plain Kotlin/JVM, unit tested): the Immich
+  API client and models, `schedule/`, `cache/CachePolicy`, `crop/CropTarget`. `:app` is the
+  Android shell around it.
+- **Schedule.** `ScheduleResolver` maps a date to a cycle (ordered `MM-DD` ranges, inclusive,
+  first match wins, year wrap, default). `SchedulePlan` adds the manual override and the
+  retention window (today plus two days). `ScheduleApplier` turns the answer into
+  `activateCycle`; it runs at the first screen-off and the first screen-on of each day,
+  before the first load after a restart, at the start of every sync, when the app is
+  opened, and on every edit. No alarms.
+- **Cache partitioned by cycle.** An entry is identified by cycle key and asset id; files
+  live in `ready/<key prefix>/`. Rotation draws only from the active cycle (from everything
+  while that cycle is empty). Each sync fills the active cycle and prefetches the ones in the
+  retention window, then deletes photos of cycles outside it once the active cycle has a photo.
+- **Foldables.** Photos are cropped to the union box of every surface shape the engine has
+  seen, and each cache entry records where its faces are; the engine slides the photo so
+  they stay in view on whichever panel is active.
+- **Transport.** HTTPS only; redirects are followed only within the same origin; downloads
+  and JSON bodies are size-capped; asset ids must be UUIDs. Sync runs are serialized and
+  stop when WorkManager replaces them.

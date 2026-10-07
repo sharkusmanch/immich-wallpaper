@@ -10,6 +10,12 @@
   <img alt="License: Apache-2.0" src="https://img.shields.io/badge/license-Apache--2.0-blue">
 </p>
 
+> [!NOTE]
+> This is a fork of [SONDLecT/immich-wallpaper](https://github.com/SONDLecT/immich-wallpaper).
+> It adds a date-of-year **schedule** that switches cycles automatically, keeps each
+> cycle's photos apart so a switch is clean, crops for foldables, and accepts HTTPS
+> servers only. It installs beside the original (application ID `xyz.sharkus.immichwall`).
+
 An Android **live wallpaper** for self-hosted photo libraries: pick people, albums,
 searches or date ranges from your library, and your lock and home screen show a
 different photo every time you wake the phone.
@@ -36,6 +42,11 @@ on-device cache, so it keeps working with no connection at all.
 
 ## Features
 
+- **Schedule** — give saved cycles date ranges (`Nov 26 – Dec 31`, a single birthday, a
+  season) and the wallpaper switches by itself at the first wake of the day. Entries are
+  checked top to bottom and the first match wins; a default cycle covers every other day.
+  The next cycle's photos are fetched two days ahead, so a switch needs no connection.
+  Picking a cycle by hand holds until the schedule next changes.
 - **Wallpaper cycles** — save any number of photo configurations and switch between
   them with one tap; build and preview new ones while the current one keeps running.
 - **Photo sources** — people (one or several, any-of or all-together), albums,
@@ -56,7 +67,7 @@ on-device cache, so it keeps working with no connection at all.
   5 minutes / hour / 6 hours / day.
 - **Wi-Fi or mobile data** — downloads wait for Wi-Fi unless you opt into cellular;
   a separate away-URL (e.g. a VPN/Tailscale address) covers syncing when you're not on
-  your home network.
+  your home network. Both addresses must be https://.
 - No Google services required; no foreground service, no alarms, no analytics.
 
 ## Requirements
