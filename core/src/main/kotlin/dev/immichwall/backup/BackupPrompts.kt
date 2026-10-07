@@ -40,6 +40,9 @@ enum class RestoreOutcome {
 
     /** Restored, but the server block that was asked for was rejected and the current one kept. */
     RESTORED_SERVER_KEPT,
+
+    /** Applying stopped part-way: some of the backup may be in place, or none of it. */
+    UNFINISHED,
 }
 
 enum class BackupSaved {
@@ -70,14 +73,16 @@ object BackupPrompts {
 
     /**
      * [applied] and [serverApplied] are what applying [backup] returned; [serverRequested] is
-     * what the user chose. Success is only ever reported for what was applied.
+     * what the user chose. Success is only ever reported for what was applied. [applied] null =
+     * applying threw instead of returning, so nothing is known about what changed.
      */
     fun restoreOutcome(
         backup: Backup,
         serverRequested: Boolean,
-        applied: Boolean,
+        applied: Boolean?,
         serverApplied: Boolean,
     ): RestoreOutcome = when {
+        applied == null -> RestoreOutcome.UNFINISHED
         !applied -> RestoreOutcome.NOTHING_RESTORED
         serverApplied -> RestoreOutcome.RESTORED_WITH_SERVER
         serverRequested && backup.hasServer -> RestoreOutcome.RESTORED_SERVER_KEPT

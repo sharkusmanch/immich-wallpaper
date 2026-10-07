@@ -20,6 +20,7 @@ import dev.immichwall.backup.Backup
 import dev.immichwall.backup.BackupDecodeResult
 import dev.immichwall.backup.BackupFile
 import dev.immichwall.backup.BackupPrompts
+import dev.immichwall.backup.BackupRestore
 import dev.immichwall.backup.RestoreOutcome
 import dev.immichwall.backup.RestorePrompt
 import dev.immichwall.schedule.ScheduleApplier
@@ -42,7 +43,9 @@ import kotlinx.coroutines.withContext
  * Create it as a property of the host fragment (the picker must be registered before the
  * fragment is created) and call [start] from a button. Nothing is applied without the
  * confirmation: a backup that was read waits in [SettingsRestoreViewModel], which survives
- * the activity being recreated and is lost, unapplied, if the process is killed.
+ * the activity being recreated and is lost, unapplied, if the process is killed. One
+ * restore at a time: [start] does nothing until the one before it is over, so the
+ * confirmation on screen always describes the backup that "Restore" applies.
  *
  * @param offerServer whether the confirmation may offer to replace the server address and
  *   API key when the backup holds them (the user's choice, off by default). False = they
@@ -51,19 +54,22 @@ import kotlinx.coroutines.withContext
  *   should not let its own settings be saved in between.
  * @param onRestored the stored settings were replaced; redraw anything that shows them.
  *   Called with the host at least started.
+ * @param onUnfinished applying failed part-way, so the stored settings may or may not have
+ *   changed; redraw anything that shows them. Called with the host at least started.
  */
 class SettingsRestoreFlow(
     private val fragment: Fragment,
     private val offerServer: Boolean,
     private val onBusy: (Boolean) -> Unit = {},
     private val onRestored: () -> Unit,
+    private val onUnfinished: () -> Unit = {},
 ) {
 
     private val model: SettingsRestoreViewModel by fragment.viewModels()
 
     private val openDocument = fragment.registerForActivityResult(
         ActivityResultContracts.OpenDocument()
-    ) { uri -> if (uri != null) model.read(uri, offerServer) }
+    ) { uri -> model.picked(uri, offerServer) }
 
     init {
         fragment.lifecycle.addObserver(object : DefaultLifecycleObserver {
@@ -79,9 +85,13 @@ class SettingsRestoreFlow(
     }
 
     fun start() {
+        // A second tap while the picker is opening, a file is being read, a confirmation is
+        // up or a restore is being applied.
+        if (!model.beginPick()) return
         try {
             openDocument.launch(MIME_TYPES)
         } catch (e: ActivityNotFoundException) {
+            model.picked(null, offerServer)
             toast(R.string.backup_no_picker)
         }
     }
@@ -110,8 +120,15 @@ class SettingsRestoreFlow(
                 RestoreOutcome.RESTORED -> toast(R.string.restore_done)
                 RestoreOutcome.RESTORED_WITH_SERVER -> toast(R.string.restore_done_with_server)
                 RestoreOutcome.RESTORED_SERVER_KEPT -> BackupMessageDialog.show(fragment, R.string.restore_done_server_kept)
+                RestoreOutcome.UNFINISHED -> BackupMessageDialog.show(fragment, R.string.restore_unfinished)
             }
-            if (shown && event.outcome != RestoreOutcome.NOTHING_RESTORED) onRestored()
+            if (shown) {
+                when (event.outcome) {
+                    RestoreOutcome.NOTHING_RESTORED -> Unit
+                    RestoreOutcome.UNFINISHED -> onUnfinished()
+                    else -> onRestored()
+                }
+            }
             shown
         }
     }
@@ -122,15 +139,17 @@ class SettingsRestoreFlow(
     }
 
     companion object {
-        private const val TAG = "SettingsRestore"
+        internal const val TAG = "SettingsRestore"
 
         /** Not JSON alone: file providers often report a `.json` file as text or as unknown. */
         private val MIME_TYPES = arrayOf("application/json", "text/*", "application/octet-stream")
 
         /**
-         * Applies [backup] and starts what every cycle change starts. Blocks (many preference
-         * commits, possibly the Keystore, possibly a wait for a sync to stop): not for the
-         * main thread.
+         * Applies [backup] and then, when [BackupRestore.startsSyncing] says so, starts what
+         * every cycle change starts. Blocks (many preference commits, possibly the Keystore,
+         * possibly a wait for a sync to stop): not for the main thread. May throw (a Keystore
+         * write, the wait for the cancellations); syncing that was stopped is started again
+         * even then.
          *
          * The apply and the schedule's follow-up run under [ScheduleApplier]'s monitor, so no
          * [ScheduleApplier.applyIfDue] elsewhere can plan against the old cycles and activate
@@ -145,14 +164,26 @@ class SettingsRestoreFlow(
                     settings.applyBackup(backup, replaceServer).also { if (it.applied) ScheduleApplier.applyIfDue(appCtx) }
                 }
             }
-            val applied =
-                if (replaceServer && backup.hasServer) SyncScheduler.withSyncsStopped(appCtx, apply) else apply()
-            // Also what restarts syncing after withSyncsStopped, so not conditional on the result.
-            SyncScheduler.ensurePeriodic(appCtx, forceReplace = true)
-            SyncScheduler.kickInitialFill(appCtx)
-            RotationController.onActiveCycleChanged(appCtx)
-            Logg.d(TAG, "restore: applied=${applied.applied} serverApplied=${applied.serverApplied}")
-            return applied
+            val stopSyncs = replaceServer && backup.hasServer
+            // Stays null when applying throws.
+            var applied: BackupApplied? = null
+            try {
+                applied = if (stopSyncs) SyncScheduler.withSyncsStopped(appCtx, apply) else apply()
+                return applied
+            } finally {
+                val startSyncing = BackupRestore.startsSyncing(settings.isConfigured, applied?.applied, stopSyncs)
+                if (startSyncing) {
+                    // Also what restarts syncing after withSyncsStopped.
+                    SyncScheduler.ensurePeriodic(appCtx, forceReplace = true)
+                    SyncScheduler.kickInitialFill(appCtx)
+                    RotationController.onActiveCycleChanged(appCtx)
+                }
+                Logg.d(
+                    TAG,
+                    "restore: applied=${applied?.applied} serverApplied=${applied?.serverApplied} " +
+                        "syncingStarted=$startSyncing",
+                )
+            }
         }
     }
 }
@@ -181,7 +212,27 @@ class SettingsRestoreViewModel(app: Application) : AndroidViewModel(app) {
     private var pending: Backup? = null
     val hasPending: Boolean get() = pending != null
 
-    fun read(uri: Uri, offerServer: Boolean) {
+    private var picking = false
+    private var reading = false
+
+    /**
+     * Claims the restore for a new file. False while one is under way: the picker is open,
+     * its file is being read, its backup waits for the confirmation, or it is being applied.
+     */
+    fun beginPick(): Boolean {
+        if (picking || reading || pending != null || applying.value) return false
+        picking = true
+        return true
+    }
+
+    /** The picker closed, with [uri] or (null) without a file. */
+    fun picked(uri: Uri?, offerServer: Boolean) {
+        picking = false
+        if (uri != null) read(uri, offerServer)
+    }
+
+    private fun read(uri: Uri, offerServer: Boolean) {
+        reading = true
         viewModelScope.launch {
             val result = withContext(Dispatchers.IO) {
                 try {
@@ -193,6 +244,7 @@ class SettingsRestoreViewModel(app: Application) : AndroidViewModel(app) {
                 }
             }
             pending = (result as? BackupDecodeResult.Ok)?.backup
+            reading = false
             event.value =
                 if (result == null) Event.Unreadable else Event.Read(BackupPrompts.restorePrompt(result, offerServer))
         }
@@ -205,11 +257,17 @@ class SettingsRestoreViewModel(app: Application) : AndroidViewModel(app) {
         applying.value = true
         viewModelScope.launch {
             val applied = withContext(Dispatchers.IO) {
-                SettingsRestoreFlow.apply(getApplication(), backup, replaceServer)
+                try {
+                    SettingsRestoreFlow.apply(getApplication(), backup, replaceServer)
+                } catch (e: Exception) {
+                    // The class only: the message could quote the address or the file.
+                    Logg.w(SettingsRestoreFlow.TAG, "restore did not finish: ${e.javaClass.simpleName}")
+                    null
+                }
             }
             applying.value = false
             event.value = Event.Applied(
-                BackupPrompts.restoreOutcome(backup, replaceServer, applied.applied, applied.serverApplied)
+                BackupPrompts.restoreOutcome(backup, replaceServer, applied?.applied, applied?.serverApplied == true)
             )
         }
     }

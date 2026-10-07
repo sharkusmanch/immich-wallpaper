@@ -90,6 +90,17 @@ class BackupPromptsTest {
     }
 
     @Test
+    fun `an apply that threw is neither a restore nor nothing changed`() {
+        val withServer = backup.copy(server = server)
+        for (b in listOf(backup, withServer)) for (requested in listOf(true, false)) for (serverApplied in listOf(true, false)) {
+            assertEquals(
+                RestoreOutcome.UNFINISHED,
+                BackupPrompts.restoreOutcome(b, requested, applied = null, serverApplied = serverApplied),
+            )
+        }
+    }
+
+    @Test
     fun `backup outcome says whether the server block went in`() {
         assertEquals(BackupSaved.SAVED, BackupPrompts.backupSaved(backup, serverRequested = false))
         assertEquals(BackupSaved.SAVED_WITH_SERVER, BackupPrompts.backupSaved(backup.copy(server = server), serverRequested = true))

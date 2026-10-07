@@ -37,6 +37,7 @@ class OptionsFragment : Fragment(R.layout.fragment_options) {
             }
         },
         onRestored = { view?.let(::showSaved) },
+        onUnfinished = { view?.let(::showSaved) },
     )
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {

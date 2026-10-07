@@ -34,4 +34,16 @@ object BackupRestore {
         val key = server.apiKey.trim().takeIf { it.isNotEmpty() } ?: return null
         return BackupServer(primary, away, key)
     }
+
+    /**
+     * Whether a restore attempt is followed by what every cycle change starts (the periodic
+     * refresh, a first fill, the wallpaper moving to the active cycle).
+     *
+     * Never before setup is finished ([configured] false): the wizard's last step starts all
+     * of it, from whatever is stored by then. Otherwise whenever the cycles were, or may have
+     * been, replaced ([applied] null = applying threw part-way), and always when syncing was
+     * stopped for the restore, since nothing else would start it again.
+     */
+    fun startsSyncing(configured: Boolean, applied: Boolean?, syncsStopped: Boolean): Boolean =
+        configured && (applied != false || syncsStopped)
 }

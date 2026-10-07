@@ -290,4 +290,5 @@
     <string name="restore_done_with_server">Settings and server details restored — fetching photos</string>
     <string name="restore_done_server_kept">Your cycles and schedule were restored. The server address or API key in the backup is not valid, so yours were left as they were.</string>
     <string name="restore_nothing">Nothing was restored: the backup holds no cycles.</string>
+    <string name="restore_unfinished">The restore did not finish. Some of the backup may be in place: check your cycles, schedule and options, or restore again.</string>
 </resources>
