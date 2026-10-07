@@ -136,6 +136,32 @@ class SettingsRepository private constructor(ctx: Context) {
         get() = plain.getInt(KEY_TARGET_CACHE_COUNT, DEFAULT_TARGET_CACHE_COUNT)
         set(value) { plain.edit().putInt(KEY_TARGET_CACHE_COUNT, value.coerceIn(50, 300)).commit() }
 
+    /**
+     * How many photos the source of the cycle with [cycleKey] held at its last good sync,
+     * or null when unknown. Sync bookkeeping, not a setting: it lets the status screen tell
+     * a small source from a cache that is behind.
+     */
+    fun sourceSize(cycleKey: String): Int? =
+        plain.getInt(KEY_SOURCE_SIZE_PREFIX + cycleKey, -1).takeIf { it >= 0 }
+
+    fun setSourceSize(cycleKey: String, size: Int?) {
+        val editor = plain.edit()
+        if (size == null) editor.remove(KEY_SOURCE_SIZE_PREFIX + cycleKey)
+        else editor.putInt(KEY_SOURCE_SIZE_PREFIX + cycleKey, size)
+        editor.commit()
+    }
+
+    /** Forgets the sizes of cycles outside [cycleKeys] (a Memories key changes every day). */
+    fun retainSourceSizes(cycleKeys: Set<String>) {
+        val stale = plain.all.keys.filter {
+            it.startsWith(KEY_SOURCE_SIZE_PREFIX) && it.removePrefix(KEY_SOURCE_SIZE_PREFIX) !in cycleKeys
+        }
+        if (stale.isEmpty()) return
+        val editor = plain.edit()
+        stale.forEach { editor.remove(it) }
+        editor.commit()
+    }
+
     var refreshIntervalHours: Int
         get() = plain.getInt(KEY_REFRESH_INTERVAL_HOURS, DEFAULT_REFRESH_INTERVAL_HOURS)
         set(value) { plain.edit().putInt(KEY_REFRESH_INTERVAL_HOURS, value).commit() }
@@ -576,6 +602,7 @@ class SettingsRepository private constructor(ctx: Context) {
         private const val KEY_SCHEDULE = "schedule"
         private const val KEY_SCHEDULE_OVERRIDE = "scheduleOverride"
         private const val KEY_DEBUG_TODAY = "debugToday"
+        private const val KEY_SOURCE_SIZE_PREFIX = "sourceSize|"
 
         const val DEFAULT_TARGET_CACHE_COUNT = 150
         const val DEFAULT_REFRESH_INTERVAL_HOURS = 6

@@ -76,6 +76,23 @@ object CachePolicy {
         return entries.filter { it.sourceKey !in retainedKeys }
     }
 
+    /**
+     * Whether the status screen should call the active cycle's cache low: it holds fewer
+     * than [floor] photos (but some: an empty cache is its own, louder check) and the
+     * source is not known to be smaller than the floor. A source that simply has fewer
+     * photos than the floor can never reach it, so warning about it would be permanent.
+     * [knownSourceSize] is what the last good sync of this cycle found; null = unknown.
+     */
+    fun warnsLowCache(readyCount: Int, floor: Int, knownSourceSize: Int?): Boolean =
+        readyCount in 1 until floor && (knownSourceSize == null || knownSourceSize >= floor)
+
+    /**
+     * The size of a source as far as a sync can tell: a search that was asked for
+     * [requested] photos and returned fewer ran out of matches, so [found] is everything the
+     * source has. One that filled the request says nothing about the rest (null).
+     */
+    fun sourceSizeIfExhausted(found: Int, requested: Int): Int? = found.takeIf { it < requested }
+
     /** Entries of cycle [key] to evict to get down to `max(floor, target)`: most-shown first, then oldest. */
     fun evictable(entries: List<CacheEntry>, key: String, target: Int, floor: Int): List<CacheEntry> {
         val mine = entries.filter { it.sourceKey == key }

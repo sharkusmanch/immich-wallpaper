@@ -3,7 +3,9 @@ package dev.immichwall.cache
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
 class CachePolicyTest {
     private val fall = "aaaaaaaaaaaa1111|q:prefer"
@@ -137,5 +139,33 @@ class CachePolicyTest {
     @Test fun `syncs stop adding photos when storage is nearly full`() {
         assertEquals(false, CachePolicy.hasRoom(CachePolicy.MIN_FREE_BYTES - 1))
         assertEquals(true, CachePolicy.hasRoom(CachePolicy.MIN_FREE_BYTES))
+    }
+
+    @Test fun `low-cache warning fires below the floor when the source size is unknown`() {
+        assertTrue(CachePolicy.warnsLowCache(readyCount = 13, floor = 20, knownSourceSize = null))
+    }
+
+    @Test fun `low-cache warning stays quiet when the source is known to be smaller than the floor`() {
+        assertFalse(CachePolicy.warnsLowCache(readyCount = 13, floor = 20, knownSourceSize = 17))
+    }
+
+    @Test fun `low-cache warning fires when the source is known to reach the floor`() {
+        assertTrue(CachePolicy.warnsLowCache(readyCount = 13, floor = 20, knownSourceSize = 20))
+        assertTrue(CachePolicy.warnsLowCache(readyCount = 13, floor = 20, knownSourceSize = 400))
+    }
+
+    @Test fun `low-cache warning never fires at or above the floor`() {
+        assertFalse(CachePolicy.warnsLowCache(readyCount = 20, floor = 20, knownSourceSize = null))
+        assertFalse(CachePolicy.warnsLowCache(readyCount = 150, floor = 20, knownSourceSize = 400))
+    }
+
+    @Test fun `low-cache warning leaves the empty cache to its own check`() {
+        assertFalse(CachePolicy.warnsLowCache(readyCount = 0, floor = 20, knownSourceSize = null))
+        assertFalse(CachePolicy.warnsLowCache(readyCount = 0, floor = 20, knownSourceSize = 17))
+    }
+
+    @Test fun `a search that returned fewer photos than asked for has found the whole source`() {
+        assertEquals(17, CachePolicy.sourceSizeIfExhausted(found = 17, requested = 60))
+        assertNull(CachePolicy.sourceSizeIfExhausted(found = 60, requested = 60))
     }
 }
