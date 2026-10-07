@@ -119,4 +119,37 @@ class BackupCodecTest {
         assertIs<BackupDecodeResult.Ok>(result)
         assertNull(result.backup.options)
     }
+
+    private val deepOpen = "[".repeat(5000)
+    private val deepClose = "]".repeat(5000)
+
+    @Test fun `deep nesting at top level is not a backup`() {
+        assertEquals(BackupDecodeResult.NotABackup, BackupCodec.decode(deepOpen + deepClose))
+    }
+
+    @Test fun `deep nesting under an unknown key is not a backup`() {
+        val text = BackupCodec.encode(backup).replaceFirst("{", """{"extra": $deepOpen$deepClose,""")
+        assertEquals(BackupDecodeResult.NotABackup, BackupCodec.decode(text))
+    }
+
+    // The depth check runs before anything is parsed, so the format number is never read: NotABackup.
+    @Test fun `deep nesting in a higher-format file is not a backup`() {
+        val text = """{"marker":"${BackupCodec.MARKER}","format":2,"x":$deepOpen$deepClose}"""
+        assertEquals(BackupDecodeResult.NotABackup, BackupCodec.decode(text))
+    }
+
+    @Test fun `brackets inside strings and escapes do not count as nesting`() {
+        val name = "[{".repeat(500) + "\\\"" + "]}".repeat(500)
+        val tricky = backup.copy(cycles = listOf(cycles[0].copy(name = name)), activeCycleId = cycles[0].id)
+        val result = BackupCodec.decode(BackupCodec.encode(tricky))
+        assertIs<BackupDecodeResult.Ok>(result)
+        assertEquals(name, result.backup.cycles[0].name)
+    }
+
+    @Test fun `format zero and negative are not backups`() {
+        for (f in listOf(0, -1)) {
+            val text = BackupCodec.encode(backup).replace("\"format\": ${BackupCodec.FORMAT}", "\"format\": $f")
+            assertEquals(BackupDecodeResult.NotABackup, BackupCodec.decode(text), "format $f")
+        }
+    }
 }
