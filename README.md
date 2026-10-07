@@ -74,10 +74,12 @@ on-device cache, so it keeps working with no connection at all.
   5 minutes / hour / 6 hours / day.
 - **Back up and restore** — **Back up settings** and **Restore settings** on the settings
   screen (the tool icon on the status screen) save your cycles, schedule and options to a
-  file and restore them from one; the first-run wizard's **Choose a photo source** step
-  offers **Restore from a backup**. The server address and API key go in the file only if you tick that box when saving, and
-  they are stored unencrypted; restoring replaces yours only if you tick that choice, and
-  the wizard never does. Photos are not included.
+  file and restore them from one; the first-run wizard's **Connect to your Immich
+  server** and **Choose a photo source** steps offer **Restore from a backup**. The server
+  address and API key go in the file only if you tick that box when saving, and they are
+  stored unencrypted; restoring on the settings screen replaces yours only if you tick that
+  choice. In the wizard, the server step uses the ones in the backup when it has them
+  (and tests the connection), and the source step ignores them. Photos are not included.
 - **Wi-Fi or mobile data** — downloads wait for Wi-Fi unless you opt into cellular;
   a separate away-URL (e.g. a VPN/Tailscale address) covers syncing when you're not on
   your home network. Both addresses must be `https://` — plain HTTP is refused, so a LAN server needs a

@@ -169,9 +169,11 @@ Minimal APK: hardcoded-photo engine + screen-off advance → sideload → verify
   photos, the manual schedule override, debug date, crop sizes, sync bookkeeping. Decode never
   throws: a non-backup, a file over 1 MB or not UTF-8 is refused, a higher `format` is refused
   as newer, and nothing changes. Restored options are coerced to what the options screen
-  offers; the server block is applied only when the user ticks it on the settings screen (and
-  only if it validates), never by the first-run wizard. Cycles, schedule and options are
-  applied in one commit under the cycles lock.
+  offers; the server block is applied only if it validates, and then when the user ticks it
+  on the settings screen or, without asking further, by the restore on the first-run
+  wizard's server screen (which then runs the connection test); the restore on the wizard's
+  source step never applies it. Cycles, schedule and options are applied in one commit under
+  the cycles lock.
 - **Low-cache warning.** `CachePolicy.warnsLowCache` stays quiet when the last good sync
   proved the source holds fewer photos than the floor (`knownSourceSize`; unknown for
   any-of-people and smart-search sources, which fall back to warning).
