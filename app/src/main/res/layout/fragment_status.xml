@@ -120,13 +120,14 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="12dp"
+                    android:baselineAligned="false"
                     android:orientation="horizontal">
 
                     <Button
                         android:id="@+id/status_refresh"
                         style="?attr/materialButtonOutlinedStyle"
                         android:layout_width="0dp"
-                        android:layout_height="wrap_content"
+                        android:layout_height="match_parent"
                         android:layout_marginEnd="8dp"
                         android:layout_weight="1"
                         android:text="@string/status_refresh" />
@@ -135,7 +136,7 @@
                         android:id="@+id/status_reapply"
                         style="?attr/materialButtonOutlinedStyle"
                         android:layout_width="0dp"
-                        android:layout_height="wrap_content"
+                        android:layout_height="match_parent"
                         android:layout_weight="1"
                         android:text="@string/status_reapply" />
                 </LinearLayout>
@@ -173,14 +174,14 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="12dp"
+                    android:baselineAligned="false"
                     android:orientation="horizontal">
 
                     <Button
                         android:id="@+id/status_schedule_edit"
                         style="?attr/materialButtonOutlinedStyle"
                         android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_marginEnd="8dp"
+                        android:layout_height="match_parent"
                         android:layout_weight="1"
                         android:text="@string/status_schedule_edit" />
 
@@ -188,7 +189,8 @@
                         android:id="@+id/status_schedule_resume"
                         style="?attr/materialButtonOutlinedStyle"
                         android:layout_width="0dp"
-                        android:layout_height="wrap_content"
+                        android:layout_height="match_parent"
+                        android:layout_marginStart="8dp"
                         android:layout_weight="1"
                         android:text="@string/status_schedule_resume"
                         android:visibility="gone" />
