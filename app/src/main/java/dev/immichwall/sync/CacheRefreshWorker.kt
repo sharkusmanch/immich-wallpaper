@@ -6,7 +6,6 @@ import androidx.work.WorkerParameters
 import dev.immichwall.api.ApiException
 import dev.immichwall.api.AssetDto
 import dev.immichwall.api.AssetFaceDto
-import dev.immichwall.api.AssetIds
 import dev.immichwall.api.BaseUrlSelector
 import dev.immichwall.api.ImmichApiClient
 import dev.immichwall.cache.CacheEntry
@@ -195,7 +194,12 @@ class RefreshEngine(private val ctx: Context) {
 
         // An API failure on the active cycle (a revoked key, a 5xx from search) is a failed
         // sync: no "last synced" stamp, and the workers retry it with backoff as before.
-        activeFailure?.let { throw it }
+        // The reason is recorded so the status screen can say why syncs are failing; the
+        // time of the last good sync stays, since the stale-cache warning counts from it.
+        activeFailure?.let { failure ->
+            cache.updateManifest { it.copy(lastSyncResult = "failed: ${active.name}: HTTP ${failure.code}") }
+            throw failure
+        }
 
         // The user or the schedule may have switched cycles while this run was downloading.
         // Purging or jumping on this run's idea of "active" would then delete the new
@@ -272,8 +276,7 @@ class RefreshEngine(private val ctx: Context) {
             Logg.d(TAG, "'${cycle.name}': ${staleQueue.size} entries prepared for another panel size (now ${cropW}x$cropH)")
         }
 
-        // Ids come from the server and end up in file names: anything that is not a UUID is dropped.
-        val candidates = resolver.candidates(spec, maxNew * 2).filter { AssetIds.isUuid(it.id) }
+        val candidates = resolver.candidates(spec, maxNew * 2)
         // A candidate counts as cached only if this cycle holds it at the current panel
         // size — stale entries stay eligible so they get re-prepared (promote replaces the
         // ready file in place, so the asset never has a no-file window).

@@ -2,6 +2,7 @@ package dev.immichwall.source
 
 import dev.immichwall.api.ApiException
 import dev.immichwall.api.AssetDto
+import dev.immichwall.api.AssetIds
 import dev.immichwall.api.ImmichApiClient
 import dev.immichwall.util.Logg
 import kotlinx.serialization.json.JsonObject
@@ -28,7 +29,11 @@ import java.time.LocalDate
  */
 class AssetSourceResolver(private val client: ImmichApiClient) {
 
-    /** Returns up to [n] candidate assets for [spec]; IMAGE-only, deduped by id, shuffled. */
+    /**
+     * Returns up to [n] candidate assets for [spec]; IMAGE-only, deduped by id, shuffled.
+     * Ids come from the server and end up in file names (the cache, the preview grid's
+     * temp files): anything that is not a UUID is dropped here, so no caller ever sees one.
+     */
     fun candidates(spec: SourceSpec, n: Int): List<AssetDto> {
         if (n <= 0) return emptyList()
         val size = n.coerceAtMost(MAX_REQUEST_SIZE)
@@ -71,7 +76,7 @@ class AssetSourceResolver(private val client: ImmichApiClient) {
             is SourceSpec.Custom -> customCandidates(spec, size)
         }
         return raw.asSequence()
-            .filter { it.type == TYPE_IMAGE }
+            .filter { it.type == TYPE_IMAGE && AssetIds.isUuid(it.id) }
             .distinctBy { it.id }
             .toList()
             .shuffled()

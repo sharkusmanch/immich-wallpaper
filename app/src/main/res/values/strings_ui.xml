@@ -240,6 +240,7 @@
     <string name="schedule_summary_override">Manual pick “%1$s” holds until the schedule next changes.</string>
     <string name="schedule_debug_date">Debug: pretend today is… (applies at next lock)</string>
     <string name="schedule_debug_date_set">Debug: today is %1$s (long-press to clear)</string>
+    <string name="schedule_summary_debug_date">Debug: schedule date is %1$s</string>
     <string name="status_schedule_heading">Schedule</string>
     <string name="status_schedule_edit">Edit schedule</string>
     <string name="status_schedule_resume">Resume schedule</string>

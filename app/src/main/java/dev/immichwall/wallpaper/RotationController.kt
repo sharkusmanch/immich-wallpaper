@@ -342,8 +342,11 @@ object RotationController {
         // Cycle first. When the photo on screen belongs to a cycle that is no longer the
         // active one (the date rolled over, or a sync switched cycles and could not reach
         // the server), show the active cycle now, whatever the rotation cadence says.
+        // animate = true only matters if a wake lands during this decode: the swap then
+        // crossfades instead of hard-cutting under the user's eyes. With the screen still
+        // off, loadFromCursor's own isInteractive check keeps it an instant cut.
         if (alignCursorWithActiveCycle(ctx)) {
-            loadFromCursor(ctx)
+            loadFromCursor(ctx, animate = true)
             return
         }
         // Rotation cadence: with a minimum interval set, wakes inside the window reveal

@@ -1,6 +1,7 @@
 package dev.immichwall.schedule
 
 import android.content.Context
+import dev.immichwall.BuildConfig
 import dev.immichwall.R
 import dev.immichwall.settings.SettingsRepository
 import java.time.format.DateTimeFormatter
@@ -10,8 +11,20 @@ object ScheduleText {
 
     private val dayFormat: DateTimeFormatter = DateTimeFormatter.ofPattern("MMM d")
 
-    /** What the schedule is doing today, what comes next, and whether a manual pick is holding. */
+    /**
+     * What the schedule is doing today, what comes next, and whether a manual pick is holding.
+     * A debug build with a pretend date set says so on its own line: that date outlives the
+     * test it was set for, and a schedule quietly running on the wrong day looks like a bug.
+     */
     fun summary(ctx: Context, settings: SettingsRepository): String {
+        val state = stateText(ctx, settings)
+        // Release builds ignore the stored date (see ScheduleApplier.today) and show nothing.
+        if (!BuildConfig.DEBUG || settings.debugToday.isBlank()) return state
+        val debugLine = ctx.getString(R.string.schedule_summary_debug_date, ScheduleApplier.today(settings).toString())
+        return "$state\n$debugLine"
+    }
+
+    private fun stateText(ctx: Context, settings: SettingsRepository): String {
         val schedule = settings.schedule
         if (!schedule.enabled) return ctx.getString(R.string.schedule_summary_off)
         val cycles = settings.cyclesConsistentWithActiveSpec()
