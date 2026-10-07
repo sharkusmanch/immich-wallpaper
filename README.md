@@ -14,7 +14,8 @@
 > This is a fork of [SONDLecT/immich-wallpaper](https://github.com/SONDLecT/immich-wallpaper).
 > It adds a date-of-year **schedule** that switches cycles automatically, keeps each
 > cycle's photos apart so a switch is clean, crops for foldables, and accepts HTTPS
-> servers only. It installs beside the original (application ID `xyz.sharkus.immichwall`).
+> servers only. It installs beside the original (application ID `io.github.sharkusmanch.immichwall`).
+> Earlier builds used a different application ID, so they install separately and do not upgrade in place; settings move across with Back up settings, then Restore from a backup.
 
 An Android **live wallpaper** for self-hosted photo libraries: pick people, albums,
 searches or date ranges from your library, and your lock and home screen show a

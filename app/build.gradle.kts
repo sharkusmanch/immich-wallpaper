@@ -21,7 +21,7 @@ android {
     defaultConfig {
         // Fork ID so this build installs beside upstream's dev.immichwall. The namespace
         // (and with it every package and the generated R class) stays dev.immichwall.
-        applicationId = "xyz.sharkus.immichwall"
+        applicationId = "io.github.sharkusmanch.immichwall"
         minSdk = 34
         targetSdk = 35
         versionCode = 2
