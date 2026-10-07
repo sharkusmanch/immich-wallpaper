@@ -84,7 +84,7 @@ class MemoriesPickerFragment : Fragment(R.layout.fragment_memories_picker) {
                 try {
                     val memories = client.getMemories(LocalDate.now().toString())
                     val perYear = memories
-                        .filter { it.data != null && it.data.year > 0 }
+                        .filter { (it.data?.year ?: 0) > 0 }
                         .sortedBy { it.data!!.year }
                         .map { m -> m.data!!.year to m.assets.count { it.type == "IMAGE" } }
                         .filter { it.second > 0 }

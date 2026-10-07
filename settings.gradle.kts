@@ -15,3 +15,4 @@ dependencyResolutionManagement {
 
 rootProject.name = "immich-wallpaper"
 include(":app")
+include(":core")
