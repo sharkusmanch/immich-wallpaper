@@ -14,6 +14,7 @@ import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import dev.immichwall.R
 import dev.immichwall.backup.BackupPrompts
 import dev.immichwall.backup.RestorePrompt
+import dev.immichwall.backup.ServerEndpoint
 import dev.immichwall.backup.ServerPart
 
 /**
@@ -74,12 +75,11 @@ class RestoreConfirmDialog : DialogFragment() {
             ),
         ).joinToString("\n\n")
         if (addresses != null) {
-            content.findViewById<TextView>(R.id.restore_confirm_server_addresses).apply {
-                text = listOfNotNull(
-                    getString(R.string.restore_confirm_server_address, addresses.primary),
-                    addresses.away.takeIf { it.isNotEmpty() }?.let { getString(R.string.restore_confirm_away_address, it) },
-                ).joinToString("\n")
-                visibility = View.VISIBLE
+            content.findViewById<View>(R.id.restore_confirm_server_addresses).visibility = View.VISIBLE
+            showEndpoint(content, R.id.restore_confirm_primary_host, R.id.restore_confirm_primary_address, addresses.primary)
+            addresses.away?.let { away ->
+                content.findViewById<View>(R.id.restore_confirm_away).visibility = View.VISIBLE
+                showEndpoint(content, R.id.restore_confirm_away_host, R.id.restore_confirm_away_address, away)
             }
         }
         // Keeps its own state across recreation (it has an id, and the dialog saves its views).
@@ -94,6 +94,17 @@ class RestoreConfirmDialog : DialogFragment() {
             }
             .setNegativeButton(android.R.string.cancel) { _, _ -> model.dropPending() }
             .create()
+    }
+
+    /** The host on its own line; under it the whole address, when that says more. */
+    private fun showEndpoint(content: View, hostId: Int, addressId: Int, endpoint: ServerEndpoint) {
+        content.findViewById<TextView>(hostId).text = endpoint.host
+        endpoint.fullAddress?.let { address ->
+            content.findViewById<TextView>(addressId).apply {
+                text = address
+                visibility = View.VISIBLE
+            }
+        }
     }
 
     /** Back, or a tap outside. Not onDismiss: that also runs when a recreation tears the dialog down. */

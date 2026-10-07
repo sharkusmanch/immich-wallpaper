@@ -1,5 +1,7 @@
 package dev.immichwall.backup
 
+import dev.immichwall.api.ServerUrl
+
 /** What a screen that restores does with the server address and API key in a backup. */
 enum class ServerUse {
     /** Replacing the current ones is the user's choice, off unless chosen: the settings screen. */
@@ -35,9 +37,17 @@ enum class ServerPart {
 
 /**
  * The addresses a confirmation names before a server block can be applied, as they would be
- * stored. [away] is empty when the block has none. Never the API key.
+ * stored. [away] is null when the block has none. Never the API key.
  */
-data class ServerAddresses(val primary: String, val away: String)
+data class ServerAddresses(val primary: ServerEndpoint, val away: ServerEndpoint?)
+
+/**
+ * One address for the confirmation. [host] is where requests go (with the port unless it is
+ * the default) and is shown first, on its own, so no length of address can push it out of
+ * sight. [fullAddress] is the whole stored address, or null when it says no more than the
+ * host does.
+ */
+data class ServerEndpoint(val host: String, val fullAddress: String?)
 
 /** What to show for a file the user picked to restore from. */
 sealed interface RestorePrompt {
@@ -118,7 +128,15 @@ object BackupPrompts {
     fun serverAddressesToShow(backup: Backup, serverUse: ServerUse): ServerAddresses? = when (serverUse) {
         ServerUse.IGNORED -> null
         ServerUse.OPTIONAL, ServerUse.USED ->
-            backup.server?.let(BackupRestore::serverToApply)?.let { ServerAddresses(it.serverUrl, it.awayUrl) }
+            backup.server?.let(BackupRestore::serverToApply)?.let { server ->
+                val primary = endpoint(server.serverUrl) ?: return null
+                ServerAddresses(primary, endpoint(server.awayUrl))
+            }
+    }
+
+    private fun endpoint(address: String): ServerEndpoint? {
+        val host = ServerUrl.hostAndPort(address) ?: return null
+        return ServerEndpoint(host, address.takeIf { it != "https://$host" })
     }
 
     /**

@@ -113,7 +113,7 @@ class BackupPromptsTest {
     fun `where the server block is used the confirmation shows both addresses as they will be stored`() {
         val both = backup.copy(server = BackupServer(" photos.example.test/ ", "https://away.example.test/", "made-up-key"))
         assertEquals(
-            ServerAddresses("https://photos.example.test", "https://away.example.test"),
+            ServerAddresses(ServerEndpoint("photos.example.test", null), ServerEndpoint("away.example.test", null)),
             BackupPrompts.serverAddressesToShow(both, ServerUse.USED),
         )
     }
@@ -122,9 +122,59 @@ class BackupPromptsTest {
     fun `a blank away address is shown as none`() {
         for (away in listOf("", "   ")) {
             assertEquals(
-                ServerAddresses("https://photos.example.test", ""),
+                ServerAddresses(ServerEndpoint("photos.example.test", null), away = null),
                 BackupPrompts.serverAddressesToShow(backup.copy(server = server.copy(awayUrl = away)), ServerUse.USED),
             )
+        }
+    }
+
+    @Test
+    fun `each address is shown as its host first, and in full only when that adds something`() {
+        val block = BackupServer(
+            "https://photos.a-rather-long-subdomain-name.home-network.example.test:8443/immich/",
+            "https://AWAY.example.test:443",
+            "made-up-key",
+        )
+        assertEquals(
+            ServerAddresses(
+                ServerEndpoint(
+                    "photos.a-rather-long-subdomain-name.home-network.example.test:8443",
+                    "https://photos.a-rather-long-subdomain-name.home-network.example.test:8443/immich",
+                ),
+                ServerEndpoint("away.example.test", null),
+            ),
+            BackupPrompts.serverAddressesToShow(backup.copy(server = block), ServerUse.USED),
+        )
+    }
+
+    @Test
+    fun `the host shown is the one requests go to`() {
+        // the first letter is Cyrillic
+        val lookalike = backup.copy(server = server.copy(serverUrl = "https://\u0440hotos.example.test"))
+        assertEquals(
+            ServerAddresses(ServerEndpoint("xn--hotos-uye.example.test", null), away = null),
+            BackupPrompts.serverAddressesToShow(lookalike, ServerUse.USED),
+        )
+    }
+
+    @Test
+    fun `an address that shows one host and reaches another is never shown, in either place`() {
+        val disguised = listOf(
+            "https://photos.example.test@evil.example",
+            "https://photos.example.test\n\n\n@evil.example",
+            "https://photos.example.test   @evil.example",
+            "https://photos.example.test\u202E@evil.example",
+            "https://evil.example/\u202Etset.elpmaxe.sotohp",
+            "https://evil.example/\nServer URL: https://photos.example.test",
+        )
+        for (address in disguised) for (use in ServerUse.entries) {
+            assertEquals(null, BackupPrompts.serverAddressesToShow(backup.copy(server = server.copy(serverUrl = address)), use), address)
+            assertEquals(null, BackupPrompts.serverAddressesToShow(backup.copy(server = server.copy(awayUrl = address)), use), address)
+        }
+        // and on the server screen such a file is one whose address and key are still to be entered
+        for (address in disguised) {
+            assertEquals(ServerPart.INVALID_TO_ENTER, serverPart(backup.copy(server = server.copy(serverUrl = address)), ServerUse.USED))
+            assertEquals(ServerPart.INVALID_TO_ENTER, serverPart(backup.copy(server = server.copy(awayUrl = address)), ServerUse.USED))
         }
     }
 
@@ -132,7 +182,7 @@ class BackupPromptsTest {
     fun `where replacing is a choice the confirmation shows what ticking it would store`() {
         val both = backup.copy(server = server.copy(awayUrl = "https://away.example.test"))
         assertEquals(
-            ServerAddresses("https://photos.example.test", "https://away.example.test"),
+            ServerAddresses(ServerEndpoint("photos.example.test", null), ServerEndpoint("away.example.test", null)),
             BackupPrompts.serverAddressesToShow(both, ServerUse.OPTIONAL),
         )
     }

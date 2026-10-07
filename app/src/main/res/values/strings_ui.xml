@@ -289,8 +289,7 @@
     <string name="restore_confirm_server_optional">The backup also holds a server address and API key. Yours are kept unless you choose to replace them:</string>
     <string name="restore_confirm_server_optional_shown">The backup also holds an API key and these addresses, which the key would be sent to. Yours are kept unless you choose to replace them:</string>
     <string name="restore_confirm_server_used">The server address and API key in the backup will be used, and the connection tested. The API key is sent to:</string>
-    <string name="restore_confirm_server_address">Server URL: %1$s</string>
-    <string name="restore_confirm_away_address">Away URL: %1$s</string>
+    <string name="restore_confirm_away_label">Away URL</string>
     <string name="restore_confirm_server_to_enter">The backup holds no server address and API key: you still have to enter them here.</string>
     <string name="restore_confirm_server_invalid_to_enter">The server address or API key in the backup is not valid: you still have to enter them here.</string>
     <string name="restore_confirm_replace_server">Also replace my server address and API key</string>
