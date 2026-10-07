@@ -213,6 +213,9 @@
     <string name="schedule_entry_up_cd">Move up</string>
     <string name="schedule_entry_down_cd">Move down</string>
     <string name="schedule_entry_delete_cd">Delete entry</string>
+    <string name="schedule_entry_delete_title">Delete entry?</string>
+    <string name="schedule_entry_delete_message">“%1$s” will be removed from the schedule. The change applies right away.</string>
+    <string name="schedule_entry_delete_confirm">Delete</string>
     <string name="schedule_entry_new">New entry</string>
     <string name="schedule_entry_edit">Edit entry</string>
     <string name="schedule_entry_name_hint">Name (optional)</string>

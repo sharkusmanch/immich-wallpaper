@@ -9,6 +9,7 @@ import android.widget.TextView
 import android.widget.Toast
 import androidx.fragment.app.Fragment
 import com.google.android.material.datepicker.MaterialDatePicker
+import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.google.android.material.materialswitch.MaterialSwitch
 import com.google.android.material.textfield.MaterialAutoCompleteTextView
 import dev.immichwall.BuildConfig
@@ -162,8 +163,8 @@ class ScheduleFragment : Fragment(R.layout.fragment_schedule) {
         entries.forEachIndexed { index, entry ->
             val row = inflater.inflate(R.layout.item_schedule_entry, container, false)
             // An unnamed entry goes by its cycle's name.
-            row.findViewById<TextView>(R.id.entry_name).text =
-                entry.name.ifBlank { names[entry.cycleId] ?: getString(R.string.schedule_cycle_missing) }
+            val label = entry.name.ifBlank { names[entry.cycleId] ?: getString(R.string.schedule_cycle_missing) }
+            row.findViewById<TextView>(R.id.entry_name).text = label
             row.findViewById<TextView>(R.id.entry_detail).text = getString(
                 R.string.schedule_entry_detail,
                 names[entry.cycleId] ?: getString(R.string.schedule_cycle_missing),
@@ -188,9 +189,7 @@ class ScheduleFragment : Fragment(R.layout.fragment_schedule) {
             val down = row.findViewById<Button>(R.id.entry_down)
             down.isEnabled = index < entries.lastIndex
             down.setOnClickListener { save(schedule.copy(entries = entries.swapped(index, index + 1))) }
-            row.findViewById<Button>(R.id.entry_delete).setOnClickListener {
-                save(schedule.copy(entries = entries.filter { it.id != entry.id }))
-            }
+            row.findViewById<Button>(R.id.entry_delete).setOnClickListener { confirmDeleteEntry(entry, label) }
             row.setOnClickListener { editEntry(entry) }
             container.addView(row)
         }
@@ -201,6 +200,23 @@ class ScheduleFragment : Fragment(R.layout.fragment_schedule) {
                 if (debugToday.isBlank()) getString(R.string.schedule_debug_date)
                 else getString(R.string.schedule_debug_date_set, debugToday)
         }
+    }
+
+    /**
+     * Deleting an entry applies at once: it can switch the active cycle, and the next sync
+     * then deletes the photos of the cycle it switched away from. The button sits beside
+     * the move arrows, so a slip must not be enough.
+     */
+    private fun confirmDeleteEntry(entry: ScheduleEntry, label: String) {
+        MaterialAlertDialogBuilder(requireContext())
+            .setTitle(R.string.schedule_entry_delete_title)
+            .setMessage(getString(R.string.schedule_entry_delete_message, label))
+            .setPositiveButton(R.string.schedule_entry_delete_confirm) { _, _ ->
+                val schedule = SettingsRepository.get(requireContext()).schedule
+                save(schedule.copy(entries = schedule.entries.filter { it.id != entry.id }))
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+            .show()
     }
 
     /** "Nov 26" from a stored `MM-DD`; the raw text if it somehow does not parse. */
