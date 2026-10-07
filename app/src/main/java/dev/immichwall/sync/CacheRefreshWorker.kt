@@ -19,6 +19,7 @@ import dev.immichwall.source.CycleKeys
 import dev.immichwall.source.PhotoScorer
 import dev.immichwall.source.SavedCycle
 import dev.immichwall.source.SourceSpec
+import dev.immichwall.source.knownSourceSize
 import dev.immichwall.util.HealthChecker
 import dev.immichwall.util.Logg
 import dev.immichwall.wallpaper.RotationController
@@ -280,10 +281,7 @@ class RefreshEngine(private val ctx: Context) {
 
         val requested = maxNew * 2
         val candidates = resolver.candidates(spec, requested)
-        // A multi-person "any of" search asks each person for a share of the request, so a
-        // short answer from one of them says nothing about the others.
-        val sourceSize = if (spec.mergesPerPersonSearches()) null
-        else CachePolicy.sourceSizeIfExhausted(candidates.size, requested)
+        val sourceSize = knownSourceSize(spec, candidates.size, requested)
         settings.setSourceSize(sourceKey, sourceSize)
         // A candidate counts as cached only if this cycle holds it at the current panel
         // size — stale entries stay eligible so they get re-prepared (promote replaces the
@@ -446,12 +444,6 @@ class RefreshEngine(private val ctx: Context) {
         }
 
         return FillResult(added, failed, drained, skippedByQuality)
-    }
-
-    private fun SourceSpec.mergesPerPersonSearches(): Boolean = when (this) {
-        is SourceSpec.People -> ids.size > 1 && !requireAll
-        is SourceSpec.Custom -> query.isBlank() && personIds.size > 1 && !requireAll
-        else -> false
     }
 
     private fun reportHealth() {

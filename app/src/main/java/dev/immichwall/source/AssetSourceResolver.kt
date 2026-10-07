@@ -4,6 +4,7 @@ import dev.immichwall.api.ApiException
 import dev.immichwall.api.AssetDto
 import dev.immichwall.api.AssetIds
 import dev.immichwall.api.ImmichApiClient
+import dev.immichwall.cache.CachePolicy
 import dev.immichwall.util.Logg
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.add
@@ -11,6 +12,29 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonArray
 import java.time.LocalDate
+
+/**
+ * How many photos [spec] has, when a [AssetSourceResolver.candidates] answer of [found] for
+ * [requested] proves it, else null. A short answer proves the whole source only when the
+ * server's own search ran dry, so this lives beside the resolver that knows which answers
+ * are post-filtered or split:
+ * - "any of" several people (People, or Custom without a query) is one search per person,
+ *   each given a share of the request: one person running dry says nothing about the others;
+ * - Custom with a query and an album takes the top smart-search matches library-wide and
+ *   keeps those in the album, so a large album can survive as a handful.
+ * Every other branch asks the server for [requested] and takes what it returns (Memories
+ * returns its whole pool), so fewer than asked means no more exist.
+ */
+fun knownSourceSize(spec: SourceSpec, found: Int, requested: Int): Int? {
+    val partial = when (spec) {
+        is SourceSpec.People -> spec.ids.size > 1 && !spec.requireAll
+        is SourceSpec.Custom ->
+            if (spec.query.isBlank()) spec.personIds.size > 1 && !spec.requireAll
+            else spec.albumId.isNotBlank()
+        else -> false
+    }
+    return if (partial) null else CachePolicy.sourceSizeIfExhausted(found, requested)
+}
 
 /**
  * Maps a [SourceSpec] to Immich v3 endpoints and returns shuffled, IMAGE-only, deduplicated
