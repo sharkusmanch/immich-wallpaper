@@ -12,4 +12,107 @@ class ServerUrlTest {
     @Test fun `other schemes are rejected`() = assertNull(ServerUrl.normalize("ftp://host"))
     @Test fun `garbage is rejected`() = assertNull(ServerUrl.normalize("not a url"))
     @Test fun `blank stays blank`() = assertEquals("", ServerUrl.normalize("   "))
+
+    // Addresses that show one host and reach another: the text before '@' is user info.
+    private val disguised = listOf(
+        "https://photos.example.test@evil.example",
+        "https://photos.example.test\n\n\n@evil.example",
+        "https://photos.example.test   @evil.example",
+        "https://photos.example.test‮@evil.example",
+        "https://evil.example/‮tset.elpmaxe.sotohp",
+        "https://evil.example/\nServer URL: https://photos.example.test",
+    )
+
+    @Test fun `an address that shows one host and reaches another is rejected`() {
+        for (address in disguised) assertNull(ServerUrl.normalize(address), address)
+    }
+
+    @Test fun `user info is rejected`() {
+        assertNull(ServerUrl.normalize("https://user@photos.example.test"))
+        assertNull(ServerUrl.normalize("https://user:secret@photos.example.test"))
+        assertNull(ServerUrl.normalize("user@photos.example.test"))
+        assertNull(ServerUrl.normalize("https://:secret@photos.example.test"))
+    }
+
+    @Test fun `control characters and whitespace inside the address are rejected`() {
+        for (c in listOf("\n", "\r", "\t", " ", "\u0000", "\u007F", "\u0085", " ", " ", " ")) {
+            assertNull(ServerUrl.normalize("https://photos.example.test/a${c}b"), "U+%04X".format(c[0].code))
+        }
+    }
+
+    @Test fun `bidirectional and other format characters are rejected`() {
+        val format = listOf(0x200E, 0x200F, 0x202A, 0x202B, 0x202C, 0x202D, 0x202E, 0x2066, 0x2067, 0x2068, 0x2069) +
+            listOf(0x00AD, 0x200B, 0x200C, 0x200D, 0x2060, 0xFEFF, 0x061C)
+        for (code in format) {
+            val c = code.toChar()
+            assertNull(ServerUrl.normalize("https://photos.example.test/a${c}b"), "path U+%04X".format(code))
+            assertNull(ServerUrl.normalize("https://pho${c}tos.example.test"), "host U+%04X".format(code))
+        }
+    }
+
+    @Test fun `whitespace around the address is still trimmed`() =
+        assertEquals("https://photos.example.test", ServerUrl.normalize("\t https://photos.example.test/ \n"))
+
+    @Test fun `ordinary addresses are still accepted as typed`() {
+        assertEquals("https://photos.example.test", ServerUrl.normalize("https://photos.example.test"))
+        assertEquals("https://photos.example.test:2283", ServerUrl.normalize("https://photos.example.test:2283"))
+        assertEquals("https://photos.example.test/immich", ServerUrl.normalize("https://photos.example.test/immich/"))
+        assertEquals("https://192.168.1.10:2283", ServerUrl.normalize("192.168.1.10:2283"))
+        assertEquals("https://[fd00::1]:2283", ServerUrl.normalize("https://[fd00::1]:2283"))
+    }
+
+    @Test fun `the canonical form is built from what a request would use`() {
+        assertEquals("https://photos.example.test", ServerUrl.canonical("https://photos.example.test"))
+        assertEquals("https://photos.example.test", ServerUrl.canonical(" photos.example.test/ "))
+        assertEquals("https://photos.example.test:2283", ServerUrl.canonical("https://photos.example.test:2283/"))
+        // the default port says nothing; the host is lower case
+        assertEquals("https://photos.example.test", ServerUrl.canonical("https://PHOTOS.Example.test:443"))
+        assertEquals("https://photos.example.test/immich", ServerUrl.canonical("https://photos.example.test/immich/"))
+        assertEquals("https://photos.example.test:8443/a/b", ServerUrl.canonical("photos.example.test:8443/a/b"))
+        assertEquals("https://[fd00::1]:2283", ServerUrl.canonical("https://[FD00::1]:2283"))
+        assertEquals("", ServerUrl.canonical("   "))
+    }
+
+    @Test fun `the canonical form has no query and no fragment`() {
+        assertEquals("https://photos.example.test/immich", ServerUrl.canonical("https://photos.example.test/immich?next=x#top"))
+        assertEquals("https://evil.example", ServerUrl.canonical("https://evil.example#@photos.example.test"))
+        assertEquals("https://evil.example", ServerUrl.canonical("https://evil.example?@photos.example.test"))
+    }
+
+    @Test fun `an internationalized host is canonical in its punycode form`() {
+        // the first letter is Cyrillic
+        assertEquals("https://xn--hotos-uye.example.test", ServerUrl.canonical("https://рhotos.example.test"))
+    }
+
+    @Test fun `a path outside ASCII is canonical percent-encoded`() =
+        assertEquals("https://photos.example.test/%D1%84", ServerUrl.canonical("https://photos.example.test/ф"))
+
+    @Test fun `a backslash cannot hide the host`() {
+        // OkHttp reads '\' as '/': the host is the first part, and that is what is shown
+        assertEquals("https://evil.example/@photos.example.test", ServerUrl.canonical("https://evil.example\\@photos.example.test"))
+    }
+
+    @Test fun `what normalize rejects has no canonical form`() {
+        for (address in disguised + listOf("http://photos.example.test", "ftp://host", "not a url")) {
+            assertNull(ServerUrl.canonical(address), address)
+        }
+    }
+
+    @Test fun `the canonical form is stable and passes as typed input`() {
+        for (raw in listOf("photos.example.test", "https://PHOTOS.example.test:8443/a/b/", "https://рhotos.example.test/ф", "https://[fd00::1]:2283")) {
+            val canonical = ServerUrl.canonical(raw)!!
+            assertEquals(canonical, ServerUrl.canonical(canonical), raw)
+            assertEquals(canonical, ServerUrl.normalize(canonical), raw)
+        }
+    }
+
+    @Test fun `the host is named with its port unless that is the default`() {
+        assertEquals("photos.example.test", ServerUrl.hostAndPort("https://photos.example.test"))
+        assertEquals("photos.example.test", ServerUrl.hostAndPort("https://photos.example.test/immich"))
+        assertEquals("photos.example.test:2283", ServerUrl.hostAndPort("https://photos.example.test:2283/immich"))
+        assertEquals("[fd00::1]:2283", ServerUrl.hostAndPort("https://[fd00::1]:2283"))
+        assertEquals("xn--hotos-uye.example.test", ServerUrl.hostAndPort("https://рhotos.example.test"))
+        assertNull(ServerUrl.hostAndPort(""))
+        assertNull(ServerUrl.hostAndPort("https://photos.example.test@evil.example"))
+    }
 }

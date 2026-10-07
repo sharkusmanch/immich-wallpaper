@@ -160,7 +160,10 @@ Minimal APK: hardcoded-photo engine + screen-off advance → sideload → verify
 - **Foldables.** Photos are cropped to the union box of every surface shape the engine has
   seen, and each cache entry records where its faces are; the engine slides the photo so
   they stay in view on whichever panel is active.
-- **Transport.** HTTPS only; redirects are followed only within the same origin; downloads
+- **Transport.** HTTPS only; an address with user info (`user@host`), whitespace, a control
+  character or an invisible format character is refused, typed or restored, and a restored
+  one is stored in the form built from the parsed URL (the host as resolved, punycode
+  included), so what is shown is where the key goes; redirects are followed only within the same origin; downloads
   and JSON bodies are size-capped; asset ids must be UUIDs. Sync runs are serialized and
   stop when WorkManager replaces them.
 - **Backup.** `:core` `dev.immichwall.backup`: one JSON file (marker, `format` 1, cycles,

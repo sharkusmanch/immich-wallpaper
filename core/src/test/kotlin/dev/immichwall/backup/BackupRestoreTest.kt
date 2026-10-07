@@ -90,4 +90,38 @@ class BackupRestoreTest {
         assertNull(BackupRestore.serverToApply(ok.copy(awayUrl = "http://away.example.test")))
         assertNull(BackupRestore.serverToApply(ok.copy(awayUrl = "not a url")))
     }
+
+    @Test
+    fun `a server block whose address shows one host and reaches another is not applied`() {
+        val ok = BackupServer("https://photos.example.test", "", "key-1")
+        val disguised = listOf(
+            "https://photos.example.test@evil.example",
+            "https://photos.example.test\n\n\n@evil.example",
+            "https://photos.example.test   @evil.example",
+            "https://photos.example.test‮@evil.example",
+            "https://evil.example/‮tset.elpmaxe.sotohp",
+            "https://evil.example/\nServer URL: https://photos.example.test",
+        )
+        for (address in disguised) {
+            assertNull(BackupRestore.serverToApply(ok.copy(serverUrl = address)), address)
+            assertNull(BackupRestore.serverToApply(ok.copy(awayUrl = address)), address)
+        }
+    }
+
+    @Test
+    fun `addresses are stored as a request would use them, not as written`() {
+        val got = BackupRestore.serverToApply(
+            BackupServer("https://рhotos.example.test", "https://AWAY.example.test:443/immich/?x=1#y", "key-1")
+        )
+        // the first letter of the first host is Cyrillic: its real name is the punycode one
+        assertEquals(BackupServer("https://xn--hotos-uye.example.test", "https://away.example.test/immich", "key-1"), got)
+    }
+
+    @Test
+    fun `ordinary addresses are stored as before`() {
+        for (address in listOf("https://photos.example.test", "https://photos.example.test:2283", "https://photos.example.test/immich")) {
+            assertEquals(address, BackupRestore.serverToApply(BackupServer(address, "", "key-1"))?.serverUrl)
+            assertEquals(address, BackupRestore.serverToApply(BackupServer("$address/", address, "key-1"))?.awayUrl)
+        }
+    }
 }

@@ -24,13 +24,16 @@ object BackupRestore {
     )
 
     /**
-     * The server block as it should be stored (addresses normalized, key trimmed as the setup screen does), or null when it must not
-     * be applied: the primary address is empty or rejected, the key is blank, or a non-blank
-     * away address is rejected (the whole block is then left out rather than half-applied).
+     * The server block as it should be stored, or null when it must not be applied: the
+     * primary address is empty or rejected, the key is blank, or a non-blank away address is
+     * rejected (the whole block is then left out rather than half-applied). The key is
+     * trimmed as the setup screen does. The addresses are [ServerUrl.canonical]: a file's
+     * text is not taken at its word, so what is stored, and shown before it is, names the
+     * host requests really go to.
      */
     fun serverToApply(server: BackupServer): BackupServer? {
-        val primary = ServerUrl.normalize(server.serverUrl)?.takeIf { it.isNotEmpty() } ?: return null
-        val away = ServerUrl.normalize(server.awayUrl) ?: return null
+        val primary = ServerUrl.canonical(server.serverUrl)?.takeIf { it.isNotEmpty() } ?: return null
+        val away = ServerUrl.canonical(server.awayUrl) ?: return null
         val key = server.apiKey.trim().takeIf { it.isNotEmpty() } ?: return null
         return BackupServer(primary, away, key)
     }
