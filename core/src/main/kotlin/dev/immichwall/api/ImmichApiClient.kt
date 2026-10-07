@@ -30,7 +30,17 @@ import java.util.concurrent.TimeUnit
 class ImmichApiClient(
     private val baseUrl: () -> String,
     private val apiKey: () -> String,
+    private val limits: Limits = Limits(),
 ) {
+
+    /** Hard caps on what a response may make this app read; a server (or anything posing as one) cannot exceed them. */
+    data class Limits(
+        val maxDownloadBytes: Long = 100L * 1024 * 1024,
+        val maxJsonBytes: Long = 16L * 1024 * 1024,
+        val maxThumbnailBytes: Long = 5L * 1024 * 1024,
+        /** Deadline for one whole call, body included. */
+        val callTimeoutMillis: Long = 180_000,
+    )
 
     companion object {
         // Exact strings from the Immich v3.0.3 OpenAPI `Permission` enum
@@ -50,6 +60,12 @@ class ImmichApiClient(
         .connectTimeout(3, TimeUnit.SECONDS)
         .readTimeout(20, TimeUnit.SECONDS)
         .writeTimeout(20, TimeUnit.SECONDS)
+        // Bounds a body that keeps trickling: read timeouts only bound silence.
+        .callTimeout(limits.callTimeoutMillis, TimeUnit.MILLISECONDS)
+        // OkHttp would re-send x-api-key to any host a redirect names; see the interceptor.
+        .followRedirects(false)
+        .followSslRedirects(false)
+        .addInterceptor(SameOriginRedirectInterceptor())
         .build()
 
     // ---------------------------------------------------------------------
@@ -73,12 +89,13 @@ class ImmichApiClient(
     }
 
     fun getPersonThumbnail(personId: String): ByteArray {
+        AssetIds.require(personId)
         val url = urlFor("/api/people/$personId/thumbnail")
         val endpoint = "GET /api/people/{id}/thumbnail"
         client.newCall(authed(url).get().build()).execute().use { response ->
             ensureSuccess(response, endpoint, SCOPE_PERSON_READ)
-            return response.body?.bytes()
-                ?: throw IOException("$endpoint returned an empty body")
+            val body = response.body ?: throw IOException("$endpoint returned an empty body")
+            return readBounded(body, limits.maxThumbnailBytes, endpoint)
         }
     }
 
@@ -104,6 +121,7 @@ class ImmichApiClient(
      * omit it). Feeds the quality scorer: camera make/model, aperture, ISO, lens, rating.
      */
     fun getAsset(assetId: String): AssetDto {
+        AssetIds.require(assetId)
         val url = urlFor("/api/assets/$assetId")
         return executeJson(authed(url).get().build(), "GET /api/assets/{id}", SCOPE_ASSET_READ)
     }
@@ -180,6 +198,7 @@ class ImmichApiClient(
     }
 
     fun getFaces(assetId: String): List<AssetFaceDto> {
+        AssetIds.require(assetId)
         val url = urlFor("/api/faces", "id" to assetId)
         return executeJson(authed(url).get().build(), "GET /api/faces", SCOPE_FACE_READ)
     }
@@ -196,6 +215,7 @@ class ImmichApiClient(
      *   (`original`/`fullsize`/`preview`) that actually served the bytes.
      */
     fun downloadAssetImage(assetId: String, dest: File): DownloadedImage {
+        AssetIds.require(assetId)
         // /original is the sharpest, deterministic source (full-res HEIC/JPEG); fullsize commonly
         // 302-redirects to a lower tier and preview caps at ~1920px, so both are only fallbacks.
         val ladder = listOf(
@@ -212,7 +232,7 @@ class ImmichApiClient(
                 val contentType = downloadToFile(rung.url, rung.endpoint, rung.scope, dest)
                 return DownloadedImage(contentType, rung.tier)
             } catch (e: ApiException) {
-                if (e.code == 400 || e.code == 403 || e.code == 404) {
+                if (e.code == 400 || e.code == 403 || e.code == 404 || rungUnusable(e)) {
                     lastError = e
                     continue
                 }
@@ -242,6 +262,7 @@ class ImmichApiClient(
      * @return the response Content-Type (e.g. `image/webp`, `image/jpeg`).
      */
     fun downloadAssetThumbnail(assetId: String, dest: File): String {
+        AssetIds.require(assetId)
         val ladder = listOf(
             Triple(urlFor("/api/assets/$assetId/thumbnail", "size" to "thumbnail"),
                 "GET /api/assets/{id}/thumbnail?size=thumbnail", SCOPE_ASSET_VIEW),
@@ -253,7 +274,7 @@ class ImmichApiClient(
             try {
                 return downloadToFile(url, endpoint, scope, dest)
             } catch (e: ApiException) {
-                if (e.code == 400 || e.code == 404) {
+                if (e.code == 400 || e.code == 404 || rungUnusable(e)) {
                     lastError = e
                     continue
                 }
@@ -263,7 +284,27 @@ class ImmichApiClient(
         throw lastError ?: ApiException(0, "no thumbnail rung succeeded for $assetId")
     }
 
-    private fun downloadToFile(url: HttpUrl, endpoint: String, scope: String, dest: File): String {
+    /**
+     * One rung of a download ladder. Failures that concern this rung only — too big, too
+     * slow for the call deadline, or redirected to another origin — become [ApiException]s
+     * the ladder falls through on, so one awkward asset never aborts the whole sync the way
+     * a dead link (any other [IOException]) rightly does.
+     */
+    private fun downloadToFile(url: HttpUrl, endpoint: String, scope: String, dest: File): String =
+        try {
+            fetchToFile(url, endpoint, scope, dest)
+        } catch (e: RedirectRefusedException) {
+            throw ApiException(421, "$endpoint: ${e.message}")
+        } catch (e: java.io.InterruptedIOException) {
+            // A socket read timeout means the link is dead; only the whole-call deadline is per-rung.
+            if (e is java.net.SocketTimeoutException) throw e
+            throw ApiException(408, "$endpoint did not finish within ${limits.callTimeoutMillis} ms")
+        }
+
+    /** Codes [downloadToFile] and [copyBounded] raise for a rung that cannot be used: too big, too slow, elsewhere. */
+    private fun rungUnusable(e: ApiException): Boolean = e.code == 413 || e.code == 408 || e.code == 421
+
+    private fun fetchToFile(url: HttpUrl, endpoint: String, scope: String, dest: File): String {
         client.newCall(authed(url).get().build()).execute().use { response ->
             ensureSuccess(response, endpoint, scope)
             val body = response.body ?: throw IOException("$endpoint returned an empty body")
@@ -271,7 +312,7 @@ class ImmichApiClient(
             val tmp = File(dest.path + ".tmp")
             try {
                 FileOutputStream(tmp).use { out ->
-                    body.byteStream().copyTo(out)
+                    copyBounded(body, out, limits.maxDownloadBytes, endpoint)
                     out.flush()
                     out.fd.sync()
                 }
@@ -313,8 +354,8 @@ class ImmichApiClient(
     ): T {
         client.newCall(request).execute().use { response ->
             ensureSuccess(response, endpoint, scope)
-            val text = response.body?.string()
-                ?: throw IOException("$endpoint returned an empty body")
+            val body = response.body ?: throw IOException("$endpoint returned an empty body")
+            val text = readBounded(body, limits.maxJsonBytes, endpoint).toString(Charsets.UTF_8)
             try {
                 return ApiJson.json.decodeFromString<T>(text)
             } catch (e: Exception) {
@@ -323,11 +364,39 @@ class ImmichApiClient(
         }
     }
 
+    /** Whole body as bytes, or [IOException] once it exceeds [maxBytes]. Never buffers more than that. */
+    private fun readBounded(body: okhttp3.ResponseBody, maxBytes: Long, what: String): ByteArray {
+        val source = body.source()
+        if (source.request(maxBytes + 1)) throw IOException("$what exceeds $maxBytes bytes")
+        return source.readByteArray()
+    }
+
+    /**
+     * Streams [body] to [out], failing with an HTTP-413-style [ApiException] once it exceeds
+     * [maxBytes] — an ApiException so callers skip this one asset (or fall down the quality
+     * ladder) instead of treating it as a transport failure that aborts the whole sync.
+     */
+    private fun copyBounded(body: okhttp3.ResponseBody, out: java.io.OutputStream, maxBytes: Long, what: String) {
+        val declared = body.contentLength()
+        if (declared > maxBytes) throw ApiException(413, "$what is $declared bytes; cap is $maxBytes")
+        val buffer = ByteArray(64 * 1024)
+        var total = 0L
+        body.byteStream().use { input ->
+            while (true) {
+                val n = input.read(buffer)
+                if (n < 0) break
+                total += n
+                if (total > maxBytes) throw ApiException(413, "$what exceeds $maxBytes bytes")
+                out.write(buffer, 0, n)
+            }
+        }
+    }
+
     /** Throws [ApiException] for non-2xx; sets [ApiException.scopeHint] on 403. */
     private fun ensureSuccess(response: Response, endpoint: String, scope: String?) {
         if (response.isSuccessful) return
         val snippet = try {
-            response.body?.string()?.take(200)
+            response.peekBody(4096).string().take(200)
         } catch (_: Exception) {
             null
         }

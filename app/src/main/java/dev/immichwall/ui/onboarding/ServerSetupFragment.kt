@@ -18,6 +18,7 @@ import com.google.android.material.textfield.TextInputEditText
 import dev.immichwall.BuildConfig
 import dev.immichwall.R
 import dev.immichwall.api.CheckResult
+import dev.immichwall.api.ServerUrl
 import dev.immichwall.settings.SettingsRepository
 import dev.immichwall.ui.MainActivity
 import dev.immichwall.ui.WizardViewModel
@@ -114,6 +115,12 @@ class ServerSetupFragment : Fragment(R.layout.fragment_server_setup) {
             val url = normalizeUrl(urlField.text?.toString().orEmpty())
             val away = normalizeUrl(awayField.text?.toString().orEmpty())
             val key = keyField.text?.toString()?.trim().orEmpty()
+            if (ServerUrl.normalize(urlField.text?.toString().orEmpty()) == null ||
+                ServerUrl.normalize(awayField.text?.toString().orEmpty()) == null
+            ) {
+                Toast.makeText(requireContext(), R.string.server_https_only, Toast.LENGTH_LONG).show()
+                return@setOnClickListener
+            }
             if (url.isBlank() || key.isBlank()) {
                 Toast.makeText(requireContext(), R.string.server_missing_fields, Toast.LENGTH_SHORT).show()
                 return@setOnClickListener
@@ -188,12 +195,6 @@ class ServerSetupFragment : Fragment(R.layout.fragment_server_setup) {
         }
     }
 
-    private fun normalizeUrl(raw: String): String {
-        var url = raw.trim()
-        if (url.isEmpty()) return ""
-        if (!url.startsWith("http://") && !url.startsWith("https://")) {
-            url = "http://$url"
-        }
-        return url.trimEnd('/')
-    }
+    /** "" for blank or rejected input; see [ServerUrl.normalize] for the rules. */
+    private fun normalizeUrl(raw: String): String = ServerUrl.normalize(raw) ?: ""
 }

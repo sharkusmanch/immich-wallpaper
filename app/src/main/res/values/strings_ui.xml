@@ -14,7 +14,8 @@
     <!-- Server setup -->
     <string name="server_title">Connect to your Immich server</string>
     <string name="server_url_hint">Server URL</string>
-    <string name="server_url_helper">e.g. http://192.168.1.20:2283</string>
+    <string name="server_url_helper">e.g. https://immich.example.com</string>
+    <string name="server_https_only">Only https:// addresses are accepted — the API key is never sent unencrypted</string>
     <string name="server_away_hint">Away URL (optional)</string>
     <string name="server_away_helper">Used when the primary URL is unreachable, e.g. a Tailscale address</string>
     <string name="server_api_key_hint">API key</string>

@@ -23,6 +23,8 @@ class BaseUrlSelector(private val settings: SettingsRepository) {
         .connectTimeout(PROBE_TIMEOUT_SECONDS, TimeUnit.SECONDS)
         .readTimeout(PROBE_TIMEOUT_SECONDS, TimeUnit.SECONDS)
         .writeTimeout(PROBE_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+        .followRedirects(false)
+        .followSslRedirects(false)
         .build()
 
     /** Last-known-good URL if we have one, else the configured primary. Never probes. */
@@ -56,12 +58,23 @@ class BaseUrlSelector(private val settings: SettingsRepository) {
         return null
     }
 
+    /**
+     * True only for an HTTPS URL that answers `/api/server/version` with a parseable Immich
+     * version. "Some box answered 200" is not enough: on a foreign network the primary URL's
+     * address can belong to anything, and it must not win over the away URL.
+     */
     private fun isReachable(base: String): Boolean {
         val url = "$base/api/server/version".toHttpUrlOrNull() ?: return false
+        if (!url.isHttps) return false
         return try {
-            probeClient.newCall(Request.Builder().url(url).get().build())
-                .execute()
-                .use { it.isSuccessful }
+            probeClient.newCall(Request.Builder().url(url).get().build()).execute().use { response ->
+                if (!response.isSuccessful) return@use false
+                val version = ApiJson.json.decodeFromString(
+                    ServerVersionDto.serializer(),
+                    response.peekBody(4096).string(),
+                )
+                version.major >= 1
+            }
         } catch (e: Exception) {
             Logg.d(TAG, "Probe failed for $base: ${e.message}")
             false
