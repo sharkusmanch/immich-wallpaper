@@ -70,7 +70,8 @@ class CacheRefreshWorker(ctx: Context, params: WorkerParameters) : CoroutineWork
  * own source, splitting the run's budget → evict each to target → purge cycles the
  * schedule no longer needs → persist bookkeeping → health check → move the visible
  * wallpaper onto the active cycle if it is not showing it yet. The purge and the move
- * only happen if the cycle that was active when the run began still is.
+ * only happen if the cycle that was active when the run began still is. An API failure on
+ * the active cycle fails the run (the workers retry); one on a prefetch cycle does not.
  *
  * Per-asset API errors are skipped; transport [IOException] propagates so callers can retry —
  * already-promoted photos are kept (dedup makes the retry cheap).
@@ -97,10 +98,23 @@ class RefreshEngine(private val ctx: Context) {
      * @param isStopped polled between photos, so a run WorkManager has replaced or cancelled
      *   ends promptly instead of downloading on in front of its successor.
      */
-    fun refresh(maxNew: Int, isStopped: () -> Boolean = { false }): String =
-        runLock.withLock { refreshLocked(maxNew, isStopped) }
+    fun refresh(maxNew: Int, isStopped: () -> Boolean = { false }): String = runLock.withLock {
+        try {
+            refreshLocked(maxNew, isStopped)
+        } finally {
+            // However the run ended — finished, stopped by WorkManager, or thrown out by a
+            // dead link — photos it cached must not sit behind a blank wallpaper: nothing
+            // else loads the first bitmap until the next screen-off.
+            if (RotationController.currentBitmap() == null && PhotoCacheManager.get(ctx).readyCount() > 0) {
+                RotationController.refreshFromCacheHead(ctx)
+            }
+        }
+    }
 
     private fun refreshLocked(maxNew: Int, isStopped: () -> Boolean): String {
+        // A run that was stopped while it waited for the lock has nothing to do.
+        if (isStopped()) return SUMMARY_STOPPED
+
         val settings = SettingsRepository.get(ctx)
         val cache = PhotoCacheManager.get(ctx)
 
@@ -128,7 +142,6 @@ class RefreshEngine(private val ctx: Context) {
             .distinctBy { it.id }
         val keys = targets.associate { it.id to CycleKeys.keyFor(it, settings.qualityFilterEnabled, today) }
         val activeKey = keys.getValue(active.id)
-        val wasEmpty = cache.readyCount() == 0
 
         var cropW = settings.cropWidth
         var cropH = settings.cropHeight
@@ -152,6 +165,7 @@ class RefreshEngine(private val ctx: Context) {
         }
         var remaining = maxNew
         var total = FillResult()
+        var activeFailure: ApiException? = null
         needy.forEachIndexed { index, cycle ->
             if (remaining <= 0 || isStopped()) return@forEachIndexed
             val key = keys.getValue(cycle.id)
@@ -162,9 +176,11 @@ class RefreshEngine(private val ctx: Context) {
                     settings.qualityFilterEnabled, isStopped,
                 )
             } catch (e: ApiException) {
-                // One cycle's source being unusable (its album was deleted, say) must not
-                // stop the others from filling or the bookkeeping below from running.
+                // One prefetch cycle's source being unusable (its album was deleted, say)
+                // must not stop the others from filling. The ACTIVE cycle failing is a
+                // failed sync, and is rethrown below once the others have had their turn.
                 Logg.w(TAG, "'${cycle.name}' could not be fetched: HTTP ${e.code} ${e.message}")
+                if (cycle.id == active.id) activeFailure = e
                 FillResult(failed = 1)
             }
             remaining -= result.added
@@ -176,6 +192,10 @@ class RefreshEngine(private val ctx: Context) {
             Logg.d(TAG, "run stopped; purge and bookkeeping are its successor's")
             return SUMMARY_STOPPED
         }
+
+        // An API failure on the active cycle (a revoked key, a 5xx from search) is a failed
+        // sync: no "last synced" stamp, and the workers retry it with backoff as before.
+        activeFailure?.let { throw it }
 
         // The user or the schedule may have switched cycles while this run was downloading.
         // Purging or jumping on this run's idea of "active" would then delete the new
@@ -210,9 +230,7 @@ class RefreshEngine(private val ctx: Context) {
 
         reportHealth()
 
-        if (wasEmpty && cache.readyCount() > 0) {
-            RotationController.refreshFromCacheHead(ctx)
-        } else if (stillActive && onScreen?.sourceKey != activeKey && cache.countFor(activeKey) > 0) {
+        if (stillActive && onScreen?.sourceKey != activeKey && cache.countFor(activeKey) > 0) {
             // The photo on screen belongs to another cycle and the active one now has
             // something: jump to its freshest photo (a crossfade when the screen is on).
             cache.jumpToNewest(activeKey)
