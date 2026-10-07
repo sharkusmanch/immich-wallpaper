@@ -2,9 +2,10 @@ package dev.immichwall.crop
 
 /**
  * Crop size for devices with more than one panel shape (foldables, rotation). Every photo
- * is prepared at the union box of all surface sizes the wallpaper engine has reported —
- * widest width × tallest height, centred on the faces — and the engine's scale-to-cover
- * centre-crop then shows the face-centred middle of that one file on each surface.
+ * is prepared at the union box of all surface sizes the wallpaper engines have reported —
+ * widest width × tallest height, centred on the faces. On each surface the engine scales
+ * that one file to cover and slides it to the photo's focus point ([offset]), so the faces
+ * stay in view on every panel.
  */
 object CropTarget {
     const val MAX_SURFACES = 6
@@ -17,6 +18,19 @@ object CropTarget {
         val size = Size(width, height)
         if (size in seen) return seen
         return (seen + size).takeLast(MAX_SURFACES)
+    }
+
+    /**
+     * The list to store when the engine reports a [width] × [height] surface. An empty
+     * [seen] beside a crop that is already set ([cropWidth] × [cropHeight]: seeded at
+     * onboarding, or left behind by an older list) is first seeded with that crop, so a
+     * first report can only grow the box. Without this, one panel reporting alone would
+     * shrink the box to itself and every cached photo would be prepared again at the wrong
+     * size, and once more when the other panel reported.
+     */
+    fun rememberReported(seen: List<Size>, cropWidth: Int, cropHeight: Int, width: Int, height: Int): List<Size> {
+        val known = if (seen.isEmpty() && cropWidth > 0 && cropHeight > 0) listOf(Size(cropWidth, cropHeight)) else seen
+        return remember(known, width, height)
     }
 
     /** Widest width × tallest height over [seen]; null when nothing has been reported yet. */

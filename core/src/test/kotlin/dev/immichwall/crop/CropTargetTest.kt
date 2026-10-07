@@ -46,6 +46,25 @@ class CropTargetTest {
         assertEquals(Size(110, 200), seen.last())
     }
 
+    @Test fun `a first report after a reset does not shrink a known box`() {
+        // The list was emptied (or never filled) while the crop is already the two-panel
+        // box; the cover display reports first.
+        val seen = CropTarget.rememberReported(emptyList(), cropWidth = 2256, cropHeight = 2520, width = 1080, height = 2520)
+        assertEquals(Size(2256, 2520), CropTarget.unionBox(seen))
+        assertEquals(true, Size(1080, 2520) in seen)
+    }
+
+    @Test fun `with no stored crop the first report is the box`() {
+        val seen = CropTarget.rememberReported(emptyList(), cropWidth = 0, cropHeight = 0, width = 1080, height = 2520)
+        assertEquals(listOf(Size(1080, 2520)), seen)
+        assertEquals(Size(1080, 2520), CropTarget.unionBox(seen))
+    }
+
+    @Test fun `a stored crop is not added once shapes are remembered`() {
+        val seen = CropTarget.rememberReported(listOf(Size(1080, 2520)), cropWidth = 2504, cropHeight = 2520, width = 2256, height = 2504)
+        assertEquals(listOf(Size(1080, 2520), Size(2256, 2504)), seen)
+    }
+
     @Test fun `encode and decode round-trip and tolerate junk`() {
         val seen = listOf(Size(1080, 2520), Size(1968, 2184))
         assertEquals(seen, CropTarget.decode(CropTarget.encode(seen)))

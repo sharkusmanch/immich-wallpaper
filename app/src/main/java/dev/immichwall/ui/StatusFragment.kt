@@ -22,6 +22,7 @@ import androidx.work.WorkManager
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import dev.immichwall.R
 import dev.immichwall.cache.PhotoCacheManager
+import dev.immichwall.crop.CropTarget
 import dev.immichwall.schedule.ScheduleApplier
 import dev.immichwall.schedule.ScheduleText
 import dev.immichwall.settings.SettingsRepository
@@ -33,8 +34,10 @@ import dev.immichwall.ui.onboarding.OptionsFragment
 import dev.immichwall.ui.onboarding.SourcePickerFragment
 import dev.immichwall.util.HealthChecker
 import dev.immichwall.util.HealthIssue
+import dev.immichwall.wallpaper.PhotoWallpaperService
 import dev.immichwall.wallpaper.RotationController
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -307,18 +310,35 @@ class StatusFragment : Fragment(R.layout.fragment_status) {
             .setPositiveButton(R.string.status_clear_cache_confirm) { _, _ ->
                 val appCtx = requireContext().applicationContext
                 viewLifecycleOwner.lifecycleScope.launch {
-                    withContext(Dispatchers.IO) {
+                    // Not cancellable: leaving this screen (or a fold recreating the
+                    // activity) mid-clear must not leave a deleted photo's bitmap on the
+                    // wallpaper with nothing fetching its replacement.
+                    withContext(Dispatchers.IO + NonCancellable) {
                         PhotoCacheManager.get(appCtx).clearAll()
-                        // The shapes are learned again as the phone is folded and rotated.
-                        SettingsRepository.get(appCtx).seenSurfaces = emptyList()
+                        resetSurfacesToLive(SettingsRepository.get(appCtx))
+                        RotationController.onCacheCleared()
+                        SyncScheduler.kickInitialFill(appCtx)
                     }
-                    RotationController.onCacheCleared()
-                    SyncScheduler.kickInitialFill(appCtx)
                     reload()
                 }
             }
             .setNegativeButton(android.R.string.cancel, null)
             .show()
+    }
+
+    /**
+     * Drops remembered surface shapes that no running engine has (a stray one from a
+     * rotation, say), so the refill is prepared for the panels actually in use. The live
+     * engines' shapes are kept, never forgotten: surfaces only report when they are created
+     * or resized, and a list emptied here would be rebuilt one panel at a time, shrinking
+     * the crop box to whichever reported first. With no engine running nothing changes.
+     */
+    private fun resetSurfacesToLive(settings: SettingsRepository) {
+        val live = PhotoWallpaperService.liveSurfaceSizes()
+        val box = CropTarget.unionBox(live) ?: return
+        settings.seenSurfaces = live
+        settings.cropWidth = box.width
+        settings.cropHeight = box.height
     }
 
     private data class StatusState(

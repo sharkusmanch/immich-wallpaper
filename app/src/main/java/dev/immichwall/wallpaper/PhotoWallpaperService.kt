@@ -32,22 +32,42 @@ import kotlin.math.max
  */
 class PhotoWallpaperService : WallpaperService() {
 
-    private companion object {
-        const val TAG = "PhotoWallpaperSvc"
+    companion object {
+        private const val TAG = "PhotoWallpaperSvc"
 
         /** Neutral fill shown between a fresh surface and the first decoded photo (post-setup). */
-        const val PLACEHOLDER_FILL = 0xFF10161A.toInt()
+        private const val PLACEHOLDER_FILL = 0xFF10161A.toInt()
 
-        /** Guards the process-wide receiver refcount. */
-        val processLock = Any()
-        var engineCount = 0
-        var screenReceiver: ScreenOffReceiver? = null
+        /** Guards the process-wide receiver refcount and [liveSurfaces]. */
+        private val processLock = Any()
+        private var engineCount = 0
+        private var screenReceiver: ScreenOffReceiver? = null
+
+        /** Surface size of each live, non-preview engine that has one; guarded by [processLock]. */
+        private val liveSurfaces = HashMap<WallpaperService.Engine, CropTarget.Size>()
 
         /** How long the first frame may wait for the initial cache decode. */
-        const val INITIAL_LOAD_TIMEOUT_MS = 1000L
+        private const val INITIAL_LOAD_TIMEOUT_MS = 1000L
+
+        /**
+         * The surface sizes the live wallpaper engines are drawing at right now (previews
+         * excluded), each once; empty when no engine is running. Surfaces only report when
+         * they are created or resized, so this is how "Clear cached photos" finds out which
+         * remembered shapes are real without waiting for the next fold. Any thread.
+         */
+        fun liveSurfaceSizes(): List<CropTarget.Size> =
+            synchronized(processLock) { liveSurfaces.values.distinct() }
+
+        private fun onSurfaceSize(engine: WallpaperService.Engine, width: Int, height: Int) {
+            synchronized(processLock) { liveSurfaces[engine] = CropTarget.Size(width, height) }
+        }
+
+        private fun onSurfaceGone(engine: WallpaperService.Engine) {
+            synchronized(processLock) { liveSurfaces.remove(engine) }
+        }
 
         /** Register the SCREEN_OFF/SCREEN_ON receiver once per process while >=1 REAL engine exists. */
-        fun onEngineCreated(appCtx: Context) {
+        private fun onEngineCreated(appCtx: Context) {
             synchronized(processLock) {
                 engineCount++
                 if (screenReceiver == null) {
@@ -63,7 +83,7 @@ class PhotoWallpaperService : WallpaperService() {
             }
         }
 
-        fun onEngineDestroyed(appCtx: Context) {
+        private fun onEngineDestroyed(appCtx: Context) {
             synchronized(processLock) {
                 engineCount = (engineCount - 1).coerceAtLeast(0)
                 if (engineCount == 0) {
@@ -170,6 +190,7 @@ class PhotoWallpaperService : WallpaperService() {
         override fun onDestroy() {
             RotationController.removeRedrawListener(redrawCallback)
             if (!isPreview) {
+                onSurfaceGone(this)
                 onEngineDestroyed(applicationContext)
             }
             super.onDestroy()
@@ -179,14 +200,19 @@ class PhotoWallpaperService : WallpaperService() {
             super.onSurfaceChanged(holder, format, width, height)
             // The engine's surface size is the source of truth for crop dimensions.
             // Previews may run at odd sizes on some pickers, so only the real engine persists.
+            val real = !isPreview && width > 0 && height > 0
+            // Kept even while storage is locked: it is what the engine is drawing at.
+            if (real) onSurfaceSize(this, width, height)
             val s0 = settingsOrNull()
-            if (!isPreview && width > 0 && height > 0 && s0 != null) {
+            if (real && s0 != null) {
                 val s = s0
-                // A foldable (or rotation) hands this engine several surface shapes. Photos
-                // are prepared at the union box of all of them — widest × tallest, centred
-                // on the faces — so drawPhoto's centre-crop shows the face-centred middle
-                // on each one, and surfaces never fight over the crop size.
-                val seen = CropTarget.remember(s.seenSurfaces, width, height)
+                // A foldable has an engine per display, and rotation hands an engine further
+                // shapes. Photos are prepared at the union box of all of them — widest ×
+                // tallest, centred on the faces — and drawPhoto covers each surface with
+                // that one file, slid to the photo's focus point, so surfaces never fight
+                // over the crop size. An empty list beside a stored crop starts from that
+                // crop: one panel reporting alone must not shrink the box.
+                val seen = CropTarget.rememberReported(s.seenSurfaces, s.cropWidth, s.cropHeight, width, height)
                 if (seen != s.seenSurfaces) s.seenSurfaces = seen
                 val box = CropTarget.unionBox(seen)
                 if (box != null && (s.cropWidth != box.width || s.cropHeight != box.height)) {
