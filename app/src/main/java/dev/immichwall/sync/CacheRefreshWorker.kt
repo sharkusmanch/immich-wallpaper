@@ -281,8 +281,11 @@ class RefreshEngine(private val ctx: Context) {
 
         val requested = maxNew * 2
         val candidates = resolver.candidates(spec, requested)
-        val sourceSize = knownSourceSize(spec, candidates.size, requested)
-        settings.setSourceSize(sourceKey, sourceSize)
+        val learned = knownSourceSize(spec, candidates.size, requested)
+        settings.setSourceSize(
+            sourceKey,
+            CachePolicy.sourceSizeToStore(settings.sourceSize(sourceKey), learned, requested, candidates.size),
+        )
         // A candidate counts as cached only if this cycle holds it at the current panel
         // size — stale entries stay eligible so they get re-prepared (promote replaces the
         // ready file in place, so the asset never has a no-file window).

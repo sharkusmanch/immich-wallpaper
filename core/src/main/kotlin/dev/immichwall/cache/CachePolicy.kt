@@ -93,6 +93,19 @@ object CachePolicy {
      */
     fun sourceSizeIfExhausted(found: Int, requested: Int): Int? = found.takeIf { it < requested }
 
+    /**
+     * What to record as a cycle's source size after a sync that [learned] [learned] (null =
+     * the answer proves nothing, see [sourceSizeIfExhausted]) when it asked for [requested]
+     * and got [found], given the size [previous]ly recorded. A sync that proves nothing
+     * keeps the record unless it filled a request larger than the record: then the source
+     * has grown past it. A small request (a prefetched cycle's share) says nothing against it.
+     */
+    fun sourceSizeToStore(previous: Int?, learned: Int?, requested: Int, found: Int): Int? = when {
+        learned != null -> learned
+        previous != null && !(requested > previous && found >= requested) -> previous
+        else -> null
+    }
+
     /** Entries of cycle [key] to evict to get down to `max(floor, target)`: most-shown first, then oldest. */
     fun evictable(entries: List<CacheEntry>, key: String, target: Int, floor: Int): List<CacheEntry> {
         val mine = entries.filter { it.sourceKey == key }

@@ -168,4 +168,27 @@ class CachePolicyTest {
         assertEquals(17, CachePolicy.sourceSizeIfExhausted(found = 17, requested = 60))
         assertNull(CachePolicy.sourceSizeIfExhausted(found = 60, requested = 60))
     }
+
+    @Test fun `a size learned by this sync is stored`() {
+        assertEquals(17, CachePolicy.sourceSizeToStore(previous = null, learned = 17, requested = 10, found = 10))
+        assertEquals(17, CachePolicy.sourceSizeToStore(previous = 40, learned = 17, requested = 60, found = 17))
+    }
+
+    @Test fun `an unknown size with nothing recorded stays unknown`() {
+        assertNull(CachePolicy.sourceSizeToStore(previous = null, learned = null, requested = 10, found = 10))
+    }
+
+    @Test fun `a full answer to a request no larger than the recorded size keeps the record`() {
+        assertEquals(17, CachePolicy.sourceSizeToStore(previous = 17, learned = null, requested = 10, found = 10))
+        assertEquals(17, CachePolicy.sourceSizeToStore(previous = 17, learned = null, requested = 17, found = 17))
+    }
+
+    @Test fun `a full answer to a request larger than the recorded size clears it`() {
+        assertNull(CachePolicy.sourceSizeToStore(previous = 17, learned = null, requested = 20, found = 20))
+    }
+
+    @Test fun `a source whose size is never knowable follows the same rule against an older record`() {
+        assertEquals(17, CachePolicy.sourceSizeToStore(previous = 17, learned = null, requested = 12, found = 7))
+        assertNull(CachePolicy.sourceSizeToStore(previous = 17, learned = null, requested = 30, found = 30))
+    }
 }
