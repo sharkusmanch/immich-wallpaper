@@ -99,7 +99,7 @@ Grab the latest APK from the
 will warn about unknown sources — that's normal for sideloaded apps.
 
 Each release is built and signed by GitHub Actions from a tagged commit on `main`, and
-the build is attested. To check a download came from this repository's workflow:
+the build is attested. To check a download came from this repository's workflow (the first command) and arrived intact (the second):
 
 ```bash
 gh attestation verify immich-wallpaper-x.y.z.apk -R sharkusmanch/immich-wallpaper
