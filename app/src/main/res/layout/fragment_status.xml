@@ -159,16 +159,15 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:text="@string/status_schedule_heading"
-                    android:textAllCaps="true"
-                    android:textColor="?android:attr/textColorSecondary"
-                    android:textSize="12sp" />
+                    android:textAppearance="?attr/textAppearanceLabelMedium"
+                    android:textColor="?attr/colorOnSurfaceVariant" />
 
                 <TextView
                     android:id="@+id/status_schedule"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="4dp"
-                    android:textSize="14sp" />
+                    android:textAppearance="?attr/textAppearanceBodyMedium" />
 
                 <LinearLayout
                     android:layout_width="match_parent"
