@@ -159,9 +159,9 @@
     <string name="options_quality">Prefer high-quality photos</string>
     <string name="options_quality_desc">Skips screenshots, blurry shots and photos where faces would be cut off. Relaxes automatically when a source has few photos.</string>
     <string name="preview_people_heading">People in photos (skips signs, menus, documents)</string>
-    <string name="preview_people_off">Any photo</string>
-    <string name="preview_people_prefer">Prefer people</string>
-    <string name="preview_people_require">Require people</string>
+    <string name="preview_people_off">Any</string>
+    <string name="preview_people_prefer">Prefer</string>
+    <string name="preview_people_require">Require</string>
     <string name="options_theme">Derive theme colors from the current photo</string>
     <string name="options_theme_desc">When on, Material You may re-theme the whole UI on every wake. Off keeps a stable palette.</string>
     <string name="options_continue">Continue</string>
