@@ -179,6 +179,38 @@ class BackupPromptsTest {
     }
 
     @Test
+    fun `every address of a server block that can be applied is shown`() {
+        val broken = "https://photos.example.test․.evil.example"
+        val blocks = listOf(
+            server,
+            server.copy(awayUrl = "https://away.example.test:8443/immich"),
+            BackupServer(" PHOTOS.example.test:443/ ", "away.example.test", " made-up-key "),
+            server.copy(serverUrl = "https://рhotos.example.test"),
+            server.copy(serverUrl = broken),
+            server.copy(awayUrl = broken),
+            server.copy(serverUrl = "https://photos.example.test⒈.evil.example", awayUrl = broken),
+        )
+        for (block in blocks) for (use in listOf(ServerUse.USED, ServerUse.OPTIONAL)) {
+            val applied = BackupRestore.serverToApply(block)
+            val shown = BackupPrompts.serverAddressesToShow(backup.copy(server = block), use)
+            if (applied == null) {
+                assertEquals(null, shown, block.serverUrl)
+                continue
+            }
+            assertEquals(dev.immichwall.api.ServerUrl.hostAndPort(applied.serverUrl), shown?.primary?.host, block.serverUrl)
+            assertEquals(applied.awayUrl.isNotEmpty(), shown?.away != null, block.awayUrl)
+            if (applied.awayUrl.isNotEmpty()) {
+                assertEquals(dev.immichwall.api.ServerUrl.hostAndPort(applied.awayUrl), shown?.away?.host, block.awayUrl)
+            }
+        }
+        // on the server screen, "will be used" is only ever said with addresses under it
+        for (block in blocks) {
+            val part = serverPart(backup.copy(server = block), ServerUse.USED)
+            assertEquals(part == ServerPart.USED, BackupPrompts.serverAddressesToShow(backup.copy(server = block), ServerUse.USED) != null)
+        }
+    }
+
+    @Test
     fun `where replacing is a choice the confirmation shows what ticking it would store`() {
         val both = backup.copy(server = server.copy(awayUrl = "https://away.example.test"))
         assertEquals(

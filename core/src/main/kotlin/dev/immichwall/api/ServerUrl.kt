@@ -26,13 +26,19 @@ object ServerUrl {
      * (a server may live under a sub-path: API paths are appended to the whole address). No
      * query and no fragment. "" for blank input, null for what [normalize] rejects. For an
      * address that comes from a file, where the text cannot be taken at its word.
+     *
+     * Also null unless the result parses back to exactly itself: host name mapping can turn
+     * a character into a dot and leave a name that reads once but is not a URL when rebuilt.
+     * So a non-blank result is always an address that can be stored, shown and requested.
      */
     fun canonical(raw: String): String? {
         val normalized = normalize(raw) ?: return null
         if (normalized.isEmpty()) return ""
-        val url = parse(normalized) ?: return null
-        return "https://" + hostAndPort(url) + url.encodedPath.trimEnd('/')
+        val rebuilt = rebuild(parse(normalized) ?: return null)
+        return rebuilt.takeIf { parse(it)?.let(::rebuild) == it }
     }
+
+    private fun rebuild(url: HttpUrl): String = "https://" + hostAndPort(url) + url.encodedPath.trimEnd('/')
 
     /** The host requests to [address] go to, with the port unless it is 443; null when [address] is blank or rejected. */
     fun hostAndPort(address: String): String? {
@@ -53,7 +59,12 @@ object ServerUrl {
      * invisible format character (line breaks, right-to-left overrides, zero-width marks).
      */
     private fun parse(withScheme: String): HttpUrl? {
-        if (withScheme.any { it.isISOControl() || it.isWhitespace() || it.category == CharCategory.FORMAT }) return null
+        // By code point: format characters exist outside the basic plane too.
+        val hidden = withScheme.codePoints().anyMatch {
+            Character.isISOControl(it) || Character.isWhitespace(it) || Character.isSpaceChar(it) ||
+                Character.getType(it) == Character.FORMAT.toInt() || Character.getType(it) == Character.SURROGATE.toInt()
+        }
+        if (hidden) return null
         val url = withScheme.toHttpUrlOrNull() ?: return null
         if (!url.isHttps) return null
         if (url.encodedUsername.isNotEmpty() || url.encodedPassword.isNotEmpty()) return null

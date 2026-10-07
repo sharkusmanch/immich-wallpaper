@@ -34,6 +34,8 @@ object BackupRestore {
     fun serverToApply(server: BackupServer): BackupServer? {
         val primary = ServerUrl.canonical(server.serverUrl)?.takeIf { it.isNotEmpty() } ?: return null
         val away = ServerUrl.canonical(server.awayUrl) ?: return null
+        // Whatever is stored must be nameable in the confirmation: never applied unseen.
+        if (listOf(primary, away).any { it.isNotEmpty() && ServerUrl.hostAndPort(it) == null }) return null
         val key = server.apiKey.trim().takeIf { it.isNotEmpty() } ?: return null
         return BackupServer(primary, away, key)
     }

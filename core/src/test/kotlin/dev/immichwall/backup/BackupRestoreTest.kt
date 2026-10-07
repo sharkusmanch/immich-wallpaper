@@ -124,4 +124,31 @@ class BackupRestoreTest {
             assertEquals(address, BackupRestore.serverToApply(BackupServer("$address/", address, "key-1"))?.awayUrl)
         }
     }
+
+    /** Every non-blank address of an accepted block is one that parses back to itself and names a host. */
+    private fun assertStorable(block: BackupServer?) {
+        if (block == null) return
+        for (address in listOf(block.serverUrl, block.awayUrl).filter { it.isNotEmpty() }) {
+            assertEquals(address, dev.immichwall.api.ServerUrl.canonical(address))
+            kotlin.test.assertNotNull(dev.immichwall.api.ServerUrl.hostAndPort(address), address)
+        }
+        kotlin.test.assertTrue(block.serverUrl.isNotEmpty())
+    }
+
+    @Test
+    fun `a server block is never accepted with an address that would not parse once stored`() {
+        // U+2024 maps to a dot, leaving an empty label: the rebuilt address is not a URL
+        val broken = "https://photos.example.test․.evil.example"
+        val ok = BackupServer("https://photos.example.test", "", "key-1")
+        assertStorable(BackupRestore.serverToApply(ok.copy(serverUrl = broken)))
+        // an away address that cannot be stored voids the whole block, like any rejected one
+        val asAway = BackupRestore.serverToApply(ok.copy(awayUrl = broken))
+        assertStorable(asAway)
+        if (asAway != null) assertEquals(dev.immichwall.api.ServerUrl.canonical(broken), asAway.awayUrl)
+        for (code in listOf(0x2025, 0x2026, 0x2488, 0x33C2, 0xFE30, 0xFE52)) {
+            val address = "https://photos.example.test${code.toChar()}.evil.example"
+            assertStorable(BackupRestore.serverToApply(ok.copy(serverUrl = address)))
+            assertStorable(BackupRestore.serverToApply(ok.copy(awayUrl = address)))
+        }
+    }
 }

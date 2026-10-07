@@ -115,4 +115,33 @@ class ServerUrlTest {
         assertNull(ServerUrl.hostAndPort(""))
         assertNull(ServerUrl.hostAndPort("https://photos.example.test@evil.example"))
     }
+
+    // Characters that IDN mapping turns into dots or digit-plus-dot: next to a real dot they
+    // leave an empty label, so the host parses as written but not once rebuilt.
+    private val dotLike = listOf(0x2024, 0x2025, 0x2026, 0x2488, 0x249B, 0x33C2, 0x33C7, 0x33D8, 0xFE30, 0xFE52)
+
+    @Test fun `a canonical form is only ever one that parses back to itself`() {
+        val hosts = dotLike.flatMap { code ->
+            val c = code.toChar()
+            listOf("photos.example.test$c.evil.example", "photos.example.test.$c.evil.example", "photos$c.example.test", "${c}photos.example.test")
+        }
+        for (host in hosts) for (raw in listOf("https://$host", "https://$host:8443/immich")) {
+            val canonical = ServerUrl.canonical(raw) ?: continue
+            assertEquals(canonical, ServerUrl.normalize(canonical), raw)
+            assertEquals(canonical, ServerUrl.canonical(canonical), raw)
+            kotlin.test.assertNotNull(ServerUrl.hostAndPort(canonical), raw)
+        }
+    }
+
+    @Test fun `format characters outside the basic plane are rejected`() {
+        for (code in listOf(0xE0001, 0xE0020, 0xE007F, 0x1D173, 0x1D17A, 0x110BD, 0x13430, 0x1BCA0)) {
+            val c = String(Character.toChars(code))
+            assertNull(ServerUrl.normalize("https://photos.example.test/a${c}b"), "path U+%X".format(code))
+            assertNull(ServerUrl.normalize("https://pho${c}tos.example.test"), "host U+%X".format(code))
+            assertNull(ServerUrl.canonical("https://photos.example.test/a${c}b"), "path U+%X".format(code))
+        }
+    }
+
+    @Test fun `other characters outside the basic plane are not mistaken for format characters`() =
+        assertEquals("https://photos.example.test/%F0%9F%93%B7", ServerUrl.canonical("https://photos.example.test/📷"))
 }

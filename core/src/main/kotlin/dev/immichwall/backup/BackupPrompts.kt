@@ -129,8 +129,9 @@ object BackupPrompts {
         ServerUse.IGNORED -> null
         ServerUse.OPTIONAL, ServerUse.USED ->
             backup.server?.let(BackupRestore::serverToApply)?.let { server ->
+                // serverToApply only accepts addresses that name a host, so neither lookup fails.
                 val primary = endpoint(server.serverUrl) ?: return null
-                ServerAddresses(primary, endpoint(server.awayUrl))
+                ServerAddresses(primary, server.awayUrl.takeIf { it.isNotEmpty() }?.let { endpoint(it) ?: return null })
             }
     }
 
