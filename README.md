@@ -65,6 +65,11 @@ on-device cache, so it keeps working with no connection at all.
 - **No repeats** — least-recently-shown rotation across the cache.
 - **Rotation cadence** — a new photo at every screen wake (default), or at most every
   5 minutes / hour / 6 hours / day.
+- **Back up and restore** — the settings screen can save your cycles, schedule and options
+  to a file and restore them from one (also offered on the first-run wizard's source step).
+  The server address and API key go in the file only if you tick that box when saving, and
+  they are stored unencrypted; restoring replaces yours only if you tick that choice, and
+  the wizard never does. Photos are not included.
 - **Wi-Fi or mobile data** — downloads wait for Wi-Fi unless you opt into cellular;
   a separate away-URL (e.g. a VPN/Tailscale address) covers syncing when you're not on
   your home network. Both addresses must be `https://`.

@@ -163,3 +163,15 @@ Minimal APK: hardcoded-photo engine + screen-off advance → sideload → verify
 - **Transport.** HTTPS only; redirects are followed only within the same origin; downloads
   and JSON bodies are size-capped; asset ids must be UUIDs. Sync runs are serialized and
   stop when WorkManager replaces them.
+- **Backup.** `:core` `dev.immichwall.backup`: one JSON file (marker, `format` 1, cycles,
+  active cycle, schedule, six options, optional server block). The server block (address,
+  away address, API key; unencrypted) is opt-in at export, off by default. Never in the file:
+  photos, the manual schedule override, debug date, crop sizes, sync bookkeeping. Decode never
+  throws: a non-backup, a file over 1 MB or not UTF-8 is refused, a higher `format` is refused
+  as newer, and nothing changes. Restored options are coerced to what the options screen
+  offers; the server block is applied only when the user ticks it on the settings screen (and
+  only if it validates), never by the first-run wizard. Cycles, schedule and options are
+  applied in one commit under the cycles lock.
+- **Low-cache warning.** `CachePolicy.warnsLowCache` stays quiet when the last good sync
+  proved the source holds fewer photos than the floor (`knownSourceSize`; unknown for
+  any-of-people and smart-search sources, which fall back to warning).
