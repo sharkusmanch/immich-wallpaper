@@ -68,6 +68,15 @@ object ScheduleApplier {
         return settings.activateCycle(cycleId)
     }
 
+    /**
+     * Runs [block] so that it cannot interleave with [applyIfDue] or [activateManually]:
+     * for replacing the cycles and the schedule in one go (restoring a backup), where an
+     * [applyIfDue] that had already planned against the old ones would otherwise activate
+     * an old cycle afterwards. [block] may call [applyIfDue] itself.
+     */
+    @Synchronized
+    fun <T> exclusively(block: () -> T): T = block()
+
     /** Drops a manual pick and returns to the schedule. True when the active cycle changed. */
     fun resumeSchedule(ctx: Context): Boolean {
         SettingsRepository.get(ctx).scheduleOverride = null

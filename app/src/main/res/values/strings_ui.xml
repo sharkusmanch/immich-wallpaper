@@ -250,4 +250,44 @@
     <string name="status_clear_cache_message">Every downloaded wallpaper is deleted from this phone and fetched again on the next sync.</string>
     <string name="status_clear_cache_confirm">Clear</string>
     <string name="cycle_delete_scheduled">The schedule uses this cycle — remove it there first</string>
+
+    <!-- Back up and restore -->
+    <string name="backup_heading">Backup</string>
+    <string name="backup_helper">A backup holds the saved settings, not changes above that you have not saved.</string>
+    <string name="backup_button">Back up settings</string>
+    <string name="restore_button">Restore settings</string>
+    <string name="backup_dialog_title">Back up settings</string>
+    <string name="backup_dialog_message">Saves your cycles, schedule and options to a file you choose. Photos are not part of it.</string>
+    <string name="backup_dialog_include_server">Include the server address and API key</string>
+    <string name="backup_dialog_key_warning">Warning: the API key is stored in the file unencrypted. Anyone who can open the file can use your Immich account with it.</string>
+    <string name="backup_dialog_confirm">Continue</string>
+    <string name="backup_saved">Backup saved</string>
+    <string name="backup_saved_with_server">Backup saved, with the server address and API key</string>
+    <string name="backup_saved_server_unset">The backup was saved, but without a server address and API key: none are set on this phone.</string>
+    <string name="backup_failed">Couldn\'t save the backup</string>
+    <string name="backup_no_picker">No file picker is available on this device</string>
+    <string name="restore_not_a_backup">That file is not an Immich Wallpaper backup. Nothing was changed.</string>
+    <string name="restore_newer_format">That backup was made by a newer version of Immich Wallpaper. Update the app to restore it. Nothing was changed.</string>
+    <string name="restore_unreadable">That file could not be read. Nothing was changed.</string>
+    <string name="restore_confirm_title">Restore settings?</string>
+    <plurals name="restore_confirm_cycles">
+        <item quantity="one">%1$d cycle</item>
+        <item quantity="other">%1$d cycles</item>
+    </plurals>
+    <plurals name="restore_confirm_entries">
+        <item quantity="one">%1$d schedule entry</item>
+        <item quantity="other">%1$d schedule entries</item>
+    </plurals>
+    <string name="restore_confirm_replaces">Your cycles and schedule will be replaced by the backup\'s: %1$s and %2$s.</string>
+    <string name="restore_confirm_options_replaced">Your options are replaced too.</string>
+    <string name="restore_confirm_options_kept">The backup has no options, so yours are kept.</string>
+    <string name="restore_confirm_server_none">Your server address and API key are kept.</string>
+    <string name="restore_confirm_server_ignored">The server address and API key in the backup are not used here.</string>
+    <string name="restore_confirm_server_optional">The backup also holds a server address and API key. Yours are kept unless you choose to replace them:</string>
+    <string name="restore_confirm_replace_server">Also replace my server address and API key</string>
+    <string name="restore_confirm_confirm">Restore</string>
+    <string name="restore_done">Settings restored — fetching photos</string>
+    <string name="restore_done_with_server">Settings and server details restored — fetching photos</string>
+    <string name="restore_done_server_kept">Your cycles and schedule were restored. The server address or API key in the backup is not valid, so yours were left as they were.</string>
+    <string name="restore_nothing">Nothing was restored: the backup holds no cycles.</string>
 </resources>

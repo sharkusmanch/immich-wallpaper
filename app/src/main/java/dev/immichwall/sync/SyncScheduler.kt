@@ -137,6 +137,25 @@ object SyncScheduler {
         Logg.d(TAG, "top-up enqueued")
     }
 
+    /**
+     * Cancels every sync, waits for a run that is in flight to notice (it stops between
+     * photos) and runs [block] with none running. For changing the server address and key
+     * from outside a sync: a run that straddled the change would put back the address it
+     * last reached and send the new key to it. Blocks; not for the main thread. The caller
+     * restarts syncing afterwards ([ensurePeriodic], [kickInitialFill]).
+     *
+     * Takes the run lock first, as a run itself does before it applies the schedule.
+     */
+    fun <T> withSyncsStopped(ctx: Context, block: () -> T): T {
+        val workManager = WorkManager.getInstance(ctx)
+        for (name in listOf(PERIODIC_WORK_NAME, INITIAL_FILL_WORK_NAME, TOP_UP_WORK_NAME, MANUAL_WORK_NAME)) {
+            // Waited for, so the cancellations are in before the caller's own kicks.
+            workManager.cancelUniqueWork(name).result.get()
+        }
+        Logg.d(TAG, "syncs cancelled")
+        return RefreshEngine.whileNoRunInFlight(block)
+    }
+
     /** Wi-Fi (unmetered) only by default; any connection when the user opts into cellular. */
     private fun connectedConstraints(ctx: Context): Constraints =
         Constraints.Builder()

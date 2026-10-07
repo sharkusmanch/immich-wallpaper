@@ -477,5 +477,8 @@ class RefreshEngine(private val ctx: Context) {
 
         /** Serializes [refresh] across every worker in the process. */
         private val runLock = ReentrantLock()
+
+        /** Runs [block] while no [refresh] is under way, waiting for one that is to end. */
+        internal fun <T> whileNoRunInFlight(block: () -> T): T = runLock.withLock(block)
     }
 }
