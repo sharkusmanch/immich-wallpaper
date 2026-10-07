@@ -23,10 +23,14 @@ import dev.immichwall.util.Logg
 import kotlin.math.max
 
 /**
- * Live wallpaper service. One engine serves both home and lock screen (Android 14+).
+ * Live wallpaper service. One engine serves both home and lock screen of a display
+ * (Android 14+). A foldable runs an engine per display in this one process, and the system
+ * picker adds preview engines; all of them draw the same bitmap, each scaled and slid to
+ * its own surface.
  *
- * The engine only ever DRAWS: it renders [RotationController.currentBitmap] — a pre-cropped,
- * panel-sized JPEG decoded off the render thread — or a branded placeholder before setup.
+ * An engine only ever DRAWS: it renders [RotationController.currentBitmap] — a JPEG
+ * pre-cropped to the union box of every panel shape, decoded on the render thread — or a
+ * branded placeholder before setup.
  * Advancing happens while the screen is dark (see [RotationController] / [ScreenOffReceiver]),
  * so every wake reveals an already-swapped photo with zero jank.
  */

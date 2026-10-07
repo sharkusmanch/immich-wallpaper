@@ -22,9 +22,13 @@ import java.util.concurrent.TimeUnit
  * - [ensurePeriodic]: the steady-state periodic refresh (KEEP, so calling it from app start /
  *   health checks is free); pass `forceReplace = true` after the interval setting changed to
  *   re-register the schedule.
- * - [kickInitialFill]: expedited first 15 photos right after onboarding; the worker chains a
- *   one-shot top-up ([enqueueTopUp]) toward the full target.
- * - [kickManualRefresh]: user-initiated "refresh now" from the status screen.
+ * - [kickInitialFill]: expedited 15 photos for whenever the wallpaper needs photos now:
+ *   right after onboarding, when the active cycle changes (the schedule on a boundary day,
+ *   an edit to the schedule, a manual pick), when the crop box changes, and after "Clear
+ *   cached photos". The 15 are shared between the active cycle and any the schedule is
+ *   prefetching; the worker chains a one-shot top-up ([enqueueTopUp]) toward the full target.
+ * - [kickManualRefresh]: user-initiated "refresh now" from the status screen; also started
+ *   when a quality setting that is part of the active cycle's cache key changes.
  */
 object SyncScheduler {
 

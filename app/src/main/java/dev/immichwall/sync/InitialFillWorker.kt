@@ -10,8 +10,11 @@ import kotlinx.coroutines.withContext
 import java.io.IOException
 
 /**
- * Expedited first fill after onboarding: grabs the first [INITIAL_PHOTO_COUNT] photos so the
- * wallpaper works within seconds (enqueued expedited with
+ * Expedited fill for whenever the wallpaper needs photos now: after onboarding, after the
+ * active cycle changes (the schedule, an edit to it, a manual pick), after the crop box
+ * changes and after the cache is cleared. Grabs up to [INITIAL_PHOTO_COUNT] photos, shared
+ * between the active cycle and any the schedule is prefetching, so the wallpaper works
+ * within seconds (enqueued expedited with
  * [androidx.work.OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST] by
  * [SyncScheduler.kickInitialFill]), then chains a regular one-shot [CacheRefreshWorker] to top
  * the cache up toward the configured target.

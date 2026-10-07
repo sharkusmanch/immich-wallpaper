@@ -8,7 +8,6 @@ import java.io.File
 import java.io.FileOutputStream
 import java.io.IOException
 import java.io.RandomAccessFile
-import kotlin.math.max
 
 /**
  * Process-wide owner of `filesDir/wallpaper-cache/`:
@@ -55,10 +54,11 @@ class PhotoCacheManager private constructor(private val ctx: Context) {
     private val cursorFile = File(root, CURSOR_NAME)
 
     /**
-     * Wake-path sidecar bridging shown-marks to the next manifest write: `advance` marks
-     * entries shown in memory and appends "assetId ts" here (manifest.json is never
-     * rewritten per screen-off); any successful manifest persist folds the marks in and
-     * truncates the log; load-time replay covers process death in between.
+     * Wake-path sidecar bridging shown-marks to the next manifest write: [commitShown] and
+     * [jumpToNewest] mark entries shown in memory and append `assetId@sourceKey timestamp`
+     * here (manifest.json is never rewritten per screen-off); any successful manifest
+     * persist folds the marks in and deletes the log; load-time replay covers process death
+     * in between, and still accepts the bare `assetId timestamp` lines of older installs.
      */
     private val shownLogFile = File(root, SHOWN_LOG_NAME)
 
@@ -395,7 +395,9 @@ class PhotoCacheManager private constructor(private val ctx: Context) {
     private fun replayShownLog(m: CacheManifest): CacheManifest {
         if (!shownLogFile.isFile) return m
         return try {
-            val marks = HashMap<String, Pair<Long, Int>>() // assetId -> (latest ts, count)
+            // Keyed by the text before the last space: `assetId@sourceKey`, or a bare
+            // assetId on a line from an older install -> (latest ts, count).
+            val marks = HashMap<String, Pair<Long, Int>>()
             shownLogFile.readLines(Charsets.US_ASCII).forEach { line ->
                 val sep = line.lastIndexOf(' ')
                 if (sep <= 0) return@forEach

@@ -179,7 +179,6 @@ class ImmichApiClient(
         return executeJson(request, "POST /api/search/smart", SCOPE_ASSET_READ)
     }
 
-    /** GET /api/faces?id=<assetId> — box coords are pixels in imageWidth×imageHeight space. */
     /**
      * POST /api/search/smart with arbitrary extra filters merged into the body (personIds,
      * city, isFavorite, takenAfter/Before — fields SmartSearchDto shares with metadata
@@ -197,6 +196,7 @@ class ImmichApiClient(
         return executeJson(request, "POST /api/search/smart", SCOPE_ASSET_READ)
     }
 
+    /** GET /api/faces?id=<assetId> — box coords are pixels in imageWidth×imageHeight space. */
     fun getFaces(assetId: String): List<AssetFaceDto> {
         AssetIds.require(assetId)
         val url = urlFor("/api/faces", "id" to assetId)
@@ -205,9 +205,12 @@ class ImmichApiClient(
 
     /**
      * Downloads the best available wallpaper-sized image for [assetId] into [dest], walking a
-     * quality ladder: `thumbnail?size=fullsize` → `/original` → `thumbnail?size=preview`.
-     * A rung answering 400/403/404 (fullsize generation disabled, missing `asset.download`
-     * scope, endpoint variance) falls through to the next; other errors throw [ApiException].
+     * quality ladder: `/original` → `thumbnail?size=fullsize` → `thumbnail?size=preview`.
+     * A rung falls through to the next when it answers 400/403/404 (missing `asset.download`
+     * scope, fullsize generation disabled, endpoint variance) or cannot be used for this
+     * asset: larger than the download limit (413), slower than the call deadline (408) or
+     * redirected to another origin (421). Other errors throw [ApiException], and a dead
+     * link throws [IOException].
      * Android decodes HEIC/JPEG/WebP originals natively (API 28+), so originals are safe.
      * Streams to `<dest>.tmp`, fsyncs, then atomically renames.
      *

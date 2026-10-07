@@ -1,5 +1,7 @@
 # immich-wallpaper — Design (v1.1, 2026-07-16)
 
+> **Fork note:** the ["Fork additions (v1.1)"](#fork-additions-v11) section at the end of this document supersedes the cache layout, rotation and signatures described here for upstream v1.0.
+
 Android live-wallpaper app: every screen-on shows a **new** photo on **both** lock and home screen, drawn from a configurable Immich **source** — person(s), album, CLIP smart-search query, location, favorites, memories (on-this-day), or the whole library. Like iOS photo-shuffle, but self-hosted and far more capable.
 
 Architecture selected by a 3-lens adversarial design review (reliability 8–4, UX/battery 9–5, simplicity 8–4 in favor of the live-wallpaper approach over a WallpaperManager setter service). Judge-mandated fixes are folded in below and marked **[FIX]**.
@@ -151,9 +153,10 @@ Minimal APK: hardcoded-photo engine + screen-off advance → sideload → verify
   before the first load after a restart, at the start of every sync, when the app is
   opened, and on every edit. No alarms.
 - **Cache partitioned by cycle.** An entry is identified by cycle key and asset id; files
-  live in `ready/<key prefix>/`. Rotation draws only from the active cycle (from everything
-  while that cycle is empty). Each sync fills the active cycle and prefetches the ones in the
-  retention window, then deletes photos of cycles outside it once the active cycle has a photo.
+  live in `ready/<key prefix>/`. Rotation draws only from the active cycle (while that cycle
+  is empty, from the cycle already on screen, never from one that is only prefetched). Each
+  sync fills the active cycle and prefetches the ones in the retention window, then deletes
+  photos of cycles outside it once the active cycle has a photo.
 - **Foldables.** Photos are cropped to the union box of every surface shape the engine has
   seen, and each cache entry records where its faces are; the engine slides the photo so
   they stay in view on whichever panel is active.

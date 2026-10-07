@@ -67,7 +67,7 @@ on-device cache, so it keeps working with no connection at all.
   5 minutes / hour / 6 hours / day.
 - **Wi-Fi or mobile data** — downloads wait for Wi-Fi unless you opt into cellular;
   a separate away-URL (e.g. a VPN/Tailscale address) covers syncing when you're not on
-  your home network. Both addresses must be https://.
+  your home network. Both addresses must be `https://`.
 - No Google services required; no foreground service, no alarms, no analytics.
 
 ## Requirements
@@ -89,14 +89,14 @@ scope and names exactly which one is missing if validation fails.
 ## Install
 
 Grab the latest APK from the
-[Releases page](https://github.com/SONDLecT/immich-wallpaper/releases) and sideload it
+[Releases page](https://github.com/sharkusmanch/immich-wallpaper/releases) and sideload it
 (`adb install immich-wallpaper-x.y.z.apk`, or open the file on the phone). Android
 will warn about unknown sources — that's normal for sideloaded apps.
 
 ## Building from source
 
 ```bash
-git clone https://github.com/SONDLecT/immich-wallpaper.git
+git clone https://github.com/sharkusmanch/immich-wallpaper.git
 cd immich-wallpaper
 JAVA_HOME=/path/to/jdk17 ./gradlew assembleDebug
 # APK lands in app/build/outputs/apk/debug/app-debug.apk
@@ -107,7 +107,7 @@ Optional developer convenience: put your server in `local.properties` (never
 committed) to pre-fill the setup wizard on debug builds —
 
 ```properties
-immich.server.url=http://your-immich-host:2283
+immich.server.url=https://your-immich-host
 immich.api.key=<your api key>
 ```
 

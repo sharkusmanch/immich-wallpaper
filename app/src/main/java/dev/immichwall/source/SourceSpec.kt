@@ -98,9 +98,10 @@ sealed class SourceSpec {
     ) : SourceSpec()
 
     /**
-     * Stable identity of this spec, stored as `manifest.sourceKey`. A mismatch at refresh time
-     * means the source changed (or the Memories date rolled over) and cached photos from the
-     * old source should be drained as replacements arrive.
+     * Stable identity of this spec: the first part of a cycle's cache partition key
+     * ([CycleKeys.keyFor] appends the quality tag). Photos are cached, shown and purged per
+     * key, so a changed source (or, for Memories, a new day) is a new, empty partition; the
+     * old one keeps showing until the new one has a photo and is purged after that.
      *
      * @param today the current date as `YYYY-MM-DD`; only [Memories] folds it into the key.
      */

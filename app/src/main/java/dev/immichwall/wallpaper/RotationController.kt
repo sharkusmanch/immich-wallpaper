@@ -9,6 +9,10 @@ import android.os.SystemClock
 import android.os.UserManager
 import dev.immichwall.cache.PhotoCacheManager
 import dev.immichwall.crop.BitmapPipeline
+import dev.immichwall.schedule.ScheduleApplier
+import dev.immichwall.settings.SettingsRepository
+import dev.immichwall.source.CycleKeys
+import dev.immichwall.sync.SyncScheduler
 import dev.immichwall.util.Logg
 
 /**
@@ -24,8 +28,17 @@ import dev.immichwall.util.Logg
  *  2. Gate: skip when [UserManager.isUserForeground] is false (another profile owns the screen).
  *  3. Acquire a PARTIAL_WAKE_LOCK with a 3s timeout so the CPU cannot suspend mid-decode.
  *  4. Wait 300ms ("settle"), cancelled by SCREEN_ON — guards double-tap-to-wake and AOD glances.
- *  5. Advance the cache cursor, decode; corrupt entries are removed and skipped (max 3 attempts).
- *  6. Swap the bitmap, set the latch, redraw, recycle the old bitmap, release the wakelock.
+ *  5. Cycle check (below). If it moved the cursor, show that photo and stop here, whatever
+ *     the rotation cadence says.
+ *  6. Pick the active cycle's least-recently-shown photo and decode it; corrupt entries are
+ *     removed and skipped (max 3 attempts).
+ *  7. Swap the bitmap, set the latch, redraw, recycle the old bitmap, release the wakelock.
+ *
+ * Cycle check: the photo under the cursor must belong to the active cycle. It runs at every
+ * screen-off (step 5), at every SCREEN_ON and before every load. It applies the schedule
+ * once per calendar day and, when the cursor is on another cycle's photo and the active
+ * cycle has any, moves the cursor to the active cycle's freshest one. On the first wake of
+ * a boundary day that shows as a crossfade about a second in.
  */
 object RotationController {
 
@@ -319,17 +332,17 @@ object RotationController {
      * the caller reloads. Cheap when nothing is due: a few settings reads and one hash.
      */
     private fun alignCursorWithActiveCycle(ctx: Context): Boolean {
-        val settings = dev.immichwall.settings.SettingsRepository.get(ctx)
-        val today = dev.immichwall.schedule.ScheduleApplier.today(settings)
+        val settings = SettingsRepository.get(ctx)
+        val today = ScheduleApplier.today(settings)
         if (today != lastScheduleDate) {
-            if (dev.immichwall.schedule.ScheduleApplier.applyIfDue(ctx)) {
+            if (ScheduleApplier.applyIfDue(ctx)) {
                 // Tops the new cycle up; its prefetched photos are already on disk.
-                dev.immichwall.sync.SyncScheduler.kickInitialFill(ctx)
+                SyncScheduler.kickInitialFill(ctx)
             }
             // Only once it worked: a throw above must not write the day off.
             lastScheduleDate = today
         }
-        val key = dev.immichwall.source.CycleKeys.activeKey(settings) ?: return false
+        val key = CycleKeys.activeKey(settings) ?: return false
         val cache = PhotoCacheManager.get(ctx)
         val underCursor = cache.currentEntry() ?: return false
         if (underCursor.sourceKey == key) return false
@@ -351,7 +364,7 @@ object RotationController {
         }
         // Rotation cadence: with a minimum interval set, wakes inside the window reveal
         // the same photo again — the change waits for the first screen-off after it.
-        val settings = dev.immichwall.settings.SettingsRepository.get(ctx)
+        val settings = SettingsRepository.get(ctx)
         val minIntervalMs = settings.rotationMinIntervalMinutes * 60_000L
         if (minIntervalMs > 0) {
             val last = settings.lastAdvanceAt
@@ -364,7 +377,7 @@ object RotationController {
         val cache = PhotoCacheManager.get(ctx)
         // Only the active cycle's photos are eligible; while it has none cached the cycle
         // on screen keeps rotating (see CachePolicy.nextToShow).
-        val activeKey = dev.immichwall.source.CycleKeys.activeKey(settings).orEmpty()
+        val activeKey = CycleKeys.activeKey(settings).orEmpty()
         // Peek-then-commit: nothing (cursor, shown-marks) moves until the new photo is
         // decoded AND the screen is still off, so an aborted advance leaves no trace.
         var entry = cache.peekNextShown(activeKey)
@@ -453,8 +466,9 @@ object RotationController {
      * (render-thread ticker repaints until done); otherwise it is an instant cut — the
      * screen-off advance path never fades. The old bitmap is deliberately NOT recycled:
      * a hardware canvas may still consume it asynchronously after the draw call returns,
-     * and explicit recycle() risks a use-after-recycle there. Panel-sized bitmaps are
-     * ~15MB and the GC reclaims them promptly once unreferenced.
+     * and explicit recycle() risks a use-after-recycle there. Bitmaps are the size of the
+     * crop box (22 to 25 MB for a foldable's two panels, about 15 MB for one phone panel)
+     * and the GC reclaims them promptly once unreferenced.
      */
     private fun swapAndRedraw(newBitmap: Bitmap, animate: Boolean = false) {
         if (animate && current != null && current !== newBitmap) {
