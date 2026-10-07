@@ -22,7 +22,10 @@ import androidx.work.WorkManager
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import dev.immichwall.R
 import dev.immichwall.cache.PhotoCacheManager
+import dev.immichwall.schedule.ScheduleApplier
+import dev.immichwall.schedule.ScheduleText
 import dev.immichwall.settings.SettingsRepository
+import dev.immichwall.source.CycleKeys
 import dev.immichwall.source.SavedCycle
 import dev.immichwall.sync.SyncScheduler
 import dev.immichwall.ui.onboarding.LiveWallpaperLauncher
@@ -30,6 +33,7 @@ import dev.immichwall.ui.onboarding.OptionsFragment
 import dev.immichwall.ui.onboarding.SourcePickerFragment
 import dev.immichwall.util.HealthChecker
 import dev.immichwall.util.HealthIssue
+import dev.immichwall.wallpaper.RotationController
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -69,6 +73,19 @@ class StatusFragment : Fragment(R.layout.fragment_status) {
             }
         }
 
+        view.findViewById<Button>(R.id.status_schedule_edit).setOnClickListener {
+            (requireActivity() as MainActivity).navigateTo(ScheduleFragment())
+        }
+        view.findViewById<Button>(R.id.status_schedule_resume).setOnClickListener {
+            val appCtx = requireContext().applicationContext
+            if (ScheduleApplier.resumeSchedule(appCtx)) {
+                SyncScheduler.kickInitialFill(appCtx)
+                RotationController.onActiveCycleChanged(appCtx)
+            }
+            reload()
+        }
+        view.findViewById<Button>(R.id.status_clear_cache).setOnClickListener { confirmClearCache() }
+
         // Self-refresh: reload whenever any refresh pipeline changes state, so
         // "Refresh now" and the post-onboarding initial fill update the screen
         // without the user having to navigate away and back. reload() is
@@ -88,6 +105,12 @@ class StatusFragment : Fragment(R.layout.fragment_status) {
 
     override fun onResume() {
         super.onResume()
+        // Opening the app on a boundary day must not show yesterday's cycle as the active one.
+        val appCtx = requireContext().applicationContext
+        if (ScheduleApplier.applyIfDue(appCtx)) {
+            SyncScheduler.kickInitialFill(appCtx)
+            RotationController.onActiveCycleChanged(appCtx)
+        }
         reload()
     }
 
@@ -111,6 +134,12 @@ class StatusFragment : Fragment(R.layout.fragment_status) {
         }.getOrNull()
 
         val readyCount = runCatching { PhotoCacheManager.get(ctx).readyCount() }.getOrDefault(0)
+        // Photos of the ACTIVE cycle; null when no cycle is configured. The cache can also
+        // hold the next cycle's photos, prefetched, and those must not count toward the
+        // "N of target" line below.
+        val activeCount = runCatching {
+            CycleKeys.activeKey(settings)?.let { PhotoCacheManager.get(ctx).countFor(it) }
+        }.getOrNull()
         val cacheMb = runCatching {
             val bytes = PhotoCacheManager.get(ctx).readyBytes()
             (bytes / (1024L * 1024L)).toInt()
@@ -118,7 +147,7 @@ class StatusFragment : Fragment(R.layout.fragment_status) {
         // ctx (application context) rather than fragment getString: this runs on
         // IO and must not depend on the fragment still being attached.
         val cacheLine =
-            ctx.getString(R.string.status_cache_stats, readyCount, settings.targetCacheCount, cacheMb)
+            ctx.getString(R.string.status_cache_stats, activeCount ?: readyCount, settings.targetCacheCount, cacheMb)
 
         val manifest = runCatching { PhotoCacheManager.get(ctx).manifest() }.getOrNull()
         val syncLine = if (manifest == null || manifest.lastSyncAt <= 0L) {
@@ -145,7 +174,14 @@ class StatusFragment : Fragment(R.layout.fragment_status) {
             .sortedBy { it.name.lowercase() }
         val activeId = settings.activeCycleId
 
-        return StatusState(preview, sourceLabel, cacheLine, syncLine, issues, cycles, activeId)
+        var scheduleText = runCatching { ScheduleText.summary(ctx, settings) }.getOrDefault("")
+        // The schedule switched to a cycle with nothing cached yet: say why the old photos are still up.
+        if (activeCount == 0 && readyCount > 0) {
+            scheduleText += "\n" + ctx.getString(R.string.status_schedule_waiting)
+        }
+        val overrideActive = runCatching { ScheduleApplier.plan(settings).overrideActive }.getOrDefault(false)
+
+        return StatusState(preview, sourceLabel, cacheLine, syncLine, issues, cycles, activeId, scheduleText, overrideActive)
     }
 
     private fun render(view: View, state: StatusState) {
@@ -185,6 +221,10 @@ class StatusFragment : Fragment(R.layout.fragment_status) {
         }
         banners.visibility = if (state.issues.isEmpty()) View.GONE else View.VISIBLE
 
+        view.findViewById<TextView>(R.id.status_schedule).text = state.scheduleText
+        view.findViewById<Button>(R.id.status_schedule_resume).visibility =
+            if (state.overrideActive) View.VISIBLE else View.GONE
+
         renderCycles(view, state.cycles, state.activeCycleId)
     }
 
@@ -222,6 +262,8 @@ class StatusFragment : Fragment(R.layout.fragment_status) {
             row.findViewById<ImageButton>(R.id.cycle_delete).setOnClickListener {
                 if (cycle.id == activeId) {
                     Toast.makeText(requireContext(), R.string.cycle_delete_active, Toast.LENGTH_SHORT).show()
+                } else if (SettingsRepository.get(requireContext()).isCycleScheduled(cycle.id)) {
+                    Toast.makeText(requireContext(), R.string.cycle_delete_scheduled, Toast.LENGTH_SHORT).show()
                 } else {
                     confirmDeleteCycle(cycle)
                 }
@@ -231,11 +273,13 @@ class StatusFragment : Fragment(R.layout.fragment_status) {
     }
 
     private fun activateCycle(cycle: SavedCycle) {
-        val settings = SettingsRepository.get(requireContext())
-        settings.activateCycle(cycle.id)
-        // The refill drains the old cycle's photos gradually and crossfades the visible
-        // wallpaper to the new cycle's first photo — switching is never destructive.
-        SyncScheduler.kickInitialFill(requireContext().applicationContext)
+        val appCtx = requireContext().applicationContext
+        // With the schedule on, a manual pick holds until the schedule next changes.
+        ScheduleApplier.activateManually(appCtx, cycle.id)
+        // Photos already cached for this cycle show at once; the refill fetches the rest,
+        // and the previous cycle's photos go once this one has something to show.
+        RotationController.onActiveCycleChanged(appCtx)
+        SyncScheduler.kickInitialFill(appCtx)
         Toast.makeText(
             requireContext(),
             getString(R.string.cycle_activated, cycle.name),
@@ -256,6 +300,23 @@ class StatusFragment : Fragment(R.layout.fragment_status) {
             .show()
     }
 
+    private fun confirmClearCache() {
+        MaterialAlertDialogBuilder(requireContext())
+            .setTitle(R.string.status_clear_cache_title)
+            .setMessage(R.string.status_clear_cache_message)
+            .setPositiveButton(R.string.status_clear_cache_confirm) { _, _ ->
+                val appCtx = requireContext().applicationContext
+                viewLifecycleOwner.lifecycleScope.launch {
+                    withContext(Dispatchers.IO) { PhotoCacheManager.get(appCtx).clearAll() }
+                    RotationController.onCacheCleared()
+                    SyncScheduler.kickInitialFill(appCtx)
+                    reload()
+                }
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+            .show()
+    }
+
     private data class StatusState(
         val preview: Bitmap?,
         val sourceLabel: String,
@@ -264,6 +325,8 @@ class StatusFragment : Fragment(R.layout.fragment_status) {
         val issues: List<HealthIssue>,
         val cycles: List<SavedCycle>,
         val activeCycleId: String,
+        val scheduleText: String,
+        val overrideActive: Boolean,
     )
 
     companion object {

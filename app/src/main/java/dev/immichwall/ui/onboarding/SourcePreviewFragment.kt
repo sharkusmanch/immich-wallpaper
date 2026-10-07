@@ -159,7 +159,8 @@ class SourcePreviewFragment : Fragment(R.layout.fragment_source_preview) {
 
         confirmButton.setOnClickListener {
             val cycle = persistAsCycle()
-            settings.activateCycle(cycle.id)
+            // A manual pick: with the schedule on it holds until the schedule next changes.
+            dev.immichwall.schedule.ScheduleApplier.activateManually(requireContext().applicationContext, cycle.id)
             if (settings.isConfigured) {
                 // Activate flow: re-fill for the new source and go home; the wallpaper
                 // crossfades to the new cycle's first photo when it lands.

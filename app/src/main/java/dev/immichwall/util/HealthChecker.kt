@@ -59,8 +59,14 @@ object HealthChecker {
 
         // 2/3. Cache level.
         val cache = PhotoCacheManager.get(ctx)
+        // The ACTIVE cycle's photos are what the wallpaper rotates through; prefetched
+        // photos of the next cycle must not hide an active cycle that is nearly empty.
+        // While the active cycle has none at all, rotation falls back to everything
+        // cached, so then the whole cache is the right number.
         val readyCount = try {
-            cache.readyCount()
+            val activeKey = dev.immichwall.source.CycleKeys.activeKey(SettingsRepository.get(ctx))
+            val active = activeKey?.let { cache.countFor(it) } ?: 0
+            if (active > 0) active else cache.readyCount()
         } catch (t: Throwable) {
             Logg.w(TAG, "readyCount failed: ${t.message}")
             -1

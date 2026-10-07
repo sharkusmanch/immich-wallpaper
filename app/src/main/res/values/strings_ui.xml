@@ -237,4 +237,13 @@
     <string name="schedule_summary_override">Manual pick “%1$s” holds until the schedule next changes.</string>
     <string name="schedule_debug_date">Debug: pretend today is… (applies at next lock)</string>
     <string name="schedule_debug_date_set">Debug: today is %1$s (long-press to clear)</string>
+    <string name="status_schedule_heading">Schedule</string>
+    <string name="status_schedule_edit">Edit schedule</string>
+    <string name="status_schedule_resume">Resume schedule</string>
+    <string name="status_schedule_waiting">No photos cached for this cycle yet — still showing the previous set.</string>
+    <string name="status_clear_cache">Clear cached photos</string>
+    <string name="status_clear_cache_title">Clear cached photos?</string>
+    <string name="status_clear_cache_message">Every downloaded wallpaper is deleted from this phone and fetched again on the next sync.</string>
+    <string name="status_clear_cache_confirm">Clear</string>
+    <string name="cycle_delete_scheduled">The schedule uses this cycle — remove it there first</string>
 </resources>

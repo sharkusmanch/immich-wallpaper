@@ -72,8 +72,10 @@ class CycleDetailFragment : Fragment(R.layout.fragment_cycle_detail) {
         val activateButton = view.findViewById<Button>(R.id.detail_activate)
         activateButton.visibility = if (isActive) View.GONE else View.VISIBLE
         activateButton.setOnClickListener {
-            settings.activateCycle(cycleId)
-            SyncScheduler.kickInitialFill(requireContext().applicationContext)
+            val appCtx = requireContext().applicationContext
+            dev.immichwall.schedule.ScheduleApplier.activateManually(appCtx, cycleId)
+            dev.immichwall.wallpaper.RotationController.onActiveCycleChanged(appCtx)
+            SyncScheduler.kickInitialFill(appCtx)
             Toast.makeText(
                 requireContext(),
                 getString(R.string.cycle_activated, cycle.name),
@@ -94,6 +96,10 @@ class CycleDetailFragment : Fragment(R.layout.fragment_cycle_detail) {
         deleteButton.setOnClickListener {
             if (settings.activeCycleId == cycleId) {
                 Toast.makeText(requireContext(), R.string.cycle_delete_active, Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
+            }
+            if (settings.isCycleScheduled(cycleId)) {
+                Toast.makeText(requireContext(), R.string.cycle_delete_scheduled, Toast.LENGTH_SHORT).show()
                 return@setOnClickListener
             }
             MaterialAlertDialogBuilder(requireContext())
