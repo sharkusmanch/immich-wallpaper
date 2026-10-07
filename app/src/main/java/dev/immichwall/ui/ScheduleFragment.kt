@@ -57,7 +57,13 @@ class ScheduleFragment : Fragment(R.layout.fragment_schedule) {
         view.findViewById<MaterialSwitch>(R.id.schedule_enabled).setOnCheckedChangeListener { _, checked ->
             val settings = SettingsRepository.get(requireContext())
             val schedule = settings.schedule
-            if (checked != schedule.enabled) save(schedule.copy(enabled = checked))
+            if (checked != schedule.enabled) {
+                // Switching it on is what commits the default the dropdown has been showing.
+                val defaultId =
+                    if (checked) defaultToShow(schedule, settings, cycles(settings).mapTo(HashSet()) { it.id })
+                    else schedule.defaultCycleId
+                save(schedule.copy(enabled = checked, defaultCycleId = defaultId))
+            }
         }
         // Fires only for a tap on a menu item, never for render()'s setText.
         view.findViewById<MaterialAutoCompleteTextView>(R.id.schedule_default)
@@ -94,6 +100,16 @@ class ScheduleFragment : Fragment(R.layout.fragment_schedule) {
         render()
     }
 
+    /**
+     * A schedule needs a cycle to fall back on. Until one is stored (or when the stored one
+     * no longer exists) that is the cycle that is running. It is only SHOWN: a stored default
+     * protects its cycle from deletion, and merely opening this screen must not do that. It
+     * is stored when the user picks one or switches the schedule on.
+     */
+    private fun defaultToShow(schedule: Schedule, settings: SettingsRepository, known: Set<String>): String =
+        if (schedule.defaultCycleId !in known && settings.activeCycleId in known) settings.activeCycleId
+        else schedule.defaultCycleId
+
     private fun save(schedule: Schedule) {
         SettingsRepository.get(requireContext()).schedule = schedule
         onScheduleEdited()
@@ -124,14 +140,8 @@ class ScheduleFragment : Fragment(R.layout.fragment_schedule) {
         val known = cycles.mapTo(HashSet()) { it.id }
         val names = cycles.associate { it.id to it.name }
 
-        // A schedule needs a cycle to fall back on; start with the one that is running.
-        val schedule = settings.schedule.let { stored ->
-            if (stored.defaultCycleId !in known && settings.activeCycleId in known) {
-                stored.copy(defaultCycleId = settings.activeCycleId).also { settings.schedule = it }
-            } else {
-                stored
-            }
-        }
+        // Exactly what is stored: every row's buttons save a copy of it.
+        val schedule = settings.schedule
 
         view.findViewById<MaterialSwitch>(R.id.schedule_enabled).isChecked = schedule.enabled
         view.findViewById<TextView>(R.id.schedule_summary).text = ScheduleText.summary(requireContext(), settings)
@@ -140,7 +150,7 @@ class ScheduleFragment : Fragment(R.layout.fragment_schedule) {
         val defaultDropdown = view.findViewById<MaterialAutoCompleteTextView>(R.id.schedule_default)
         defaultDropdown.setSimpleItems(cycles.map { it.name }.toTypedArray())
         // filter = false: the text is a label, not a query, and must not narrow the list.
-        defaultDropdown.setText(names[schedule.defaultCycleId].orEmpty(), false)
+        defaultDropdown.setText(names[defaultToShow(schedule, settings, known)].orEmpty(), false)
 
         val entries = schedule.entries
         view.findViewById<TextView>(R.id.schedule_entries_empty).visibility =
@@ -201,8 +211,9 @@ class ScheduleFragment : Fragment(R.layout.fragment_schedule) {
         val view = view ?: return
         val settings = SettingsRepository.get(requireContext())
         val cycles = cycles(settings)
-        val schedule = settings.schedule
         val names = cycles.associate { it.id to it.name }
+        // Answered with the default the dropdown shows, stored yet or not.
+        val schedule = settings.schedule.let { it.copy(defaultCycleId = defaultToShow(it, settings, names.keys)) }
         val resolution = ScheduleResolver.resolve(schedule, date, names.keys)
         val day = date.format(fullDayFormat)
         view.findViewById<TextView>(R.id.schedule_check_result).text =
