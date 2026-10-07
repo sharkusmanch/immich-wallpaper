@@ -22,9 +22,13 @@ import java.util.concurrent.TimeUnit
  * - [ensurePeriodic]: the steady-state periodic refresh (KEEP, so calling it from app start /
  *   health checks is free); pass `forceReplace = true` after the interval setting changed to
  *   re-register the schedule.
- * - [kickInitialFill]: expedited first 15 photos right after onboarding; the worker chains a
- *   one-shot top-up ([enqueueTopUp]) toward the full target.
- * - [kickManualRefresh]: user-initiated "refresh now" from the status screen.
+ * - [kickInitialFill]: expedited 15 photos for whenever the wallpaper needs photos now:
+ *   right after onboarding, when the active cycle changes (the schedule on a boundary day,
+ *   an edit to the schedule, a manual pick), when the crop box changes, and after "Clear
+ *   cached photos". The 15 are shared between the active cycle and any the schedule is
+ *   prefetching; the worker chains a one-shot top-up ([enqueueTopUp]) toward the full target.
+ * - [kickManualRefresh]: user-initiated "refresh now" from the status screen; also started
+ *   when a quality setting that is part of the active cycle's cache key changes.
  */
 object SyncScheduler {
 
@@ -131,6 +135,25 @@ object SyncScheduler {
             request,
         )
         Logg.d(TAG, "top-up enqueued")
+    }
+
+    /**
+     * Cancels every sync, waits for a run that is in flight to notice (it stops between
+     * photos) and runs [block] with none running. For changing the server address and key
+     * from outside a sync: a run that straddled the change would put back the address it
+     * last reached and send the new key to it. Blocks; not for the main thread. The caller
+     * restarts syncing afterwards ([ensurePeriodic], [kickInitialFill]).
+     *
+     * Takes the run lock first, as a run itself does before it applies the schedule.
+     */
+    fun <T> withSyncsStopped(ctx: Context, block: () -> T): T {
+        val workManager = WorkManager.getInstance(ctx)
+        for (name in listOf(PERIODIC_WORK_NAME, INITIAL_FILL_WORK_NAME, TOP_UP_WORK_NAME, MANUAL_WORK_NAME)) {
+            // Waited for, so the cancellations are in before the caller's own kicks.
+            workManager.cancelUniqueWork(name).result.get()
+        }
+        Logg.d(TAG, "syncs cancelled")
+        return RefreshEngine.whileNoRunInFlight(block)
     }
 
     /** Wi-Fi (unmetered) only by default; any connection when the user opts into cellular. */

@@ -188,5 +188,45 @@
             android:layout_height="wrap_content"
             android:layout_marginTop="32dp"
             android:text="@string/options_continue" />
+
+        <!-- Settings-page mode only (OptionsFragment shows it); never in the wizard's step. -->
+        <LinearLayout
+            android:id="@+id/options_backup_section"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:visibility="gone">
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="32dp"
+                android:text="@string/backup_heading"
+                android:textSize="16sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:text="@string/backup_helper"
+                android:textColor="?android:attr/textColorSecondary"
+                android:textSize="13sp" />
+
+            <Button
+                android:id="@+id/options_backup"
+                style="@style/Widget.Material3.Button.OutlinedButton"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:text="@string/backup_button" />
+
+            <Button
+                android:id="@+id/options_restore"
+                style="@style/Widget.Material3.Button.OutlinedButton"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/restore_button" />
+        </LinearLayout>
     </LinearLayout>
 </ScrollView>

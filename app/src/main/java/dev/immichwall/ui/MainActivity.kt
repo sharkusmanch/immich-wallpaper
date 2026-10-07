@@ -2,6 +2,7 @@ package dev.immichwall.ui
 
 import android.Manifest
 import android.content.pm.PackageManager
+import android.content.res.Configuration
 import android.os.Bundle
 import android.os.SystemClock
 import android.text.Editable
@@ -9,6 +10,7 @@ import android.text.TextWatcher
 import android.widget.EditText
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.view.WindowCompat
 import androidx.fragment.app.Fragment
 import androidx.fragment.app.FragmentManager
 import androidx.lifecycle.ViewModel
@@ -45,6 +47,15 @@ class MainActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
+        // Neither the theme nor Material Components asks for dark system-bar icons, so on
+        // a light background they were white on white. The activity is recreated when
+        // the night mode changes, so reading it here keeps the icons in step.
+        val isNight = resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK ==
+            Configuration.UI_MODE_NIGHT_YES
+        WindowCompat.getInsetsController(window, window.decorView).apply {
+            isAppearanceLightStatusBars = !isNight
+            isAppearanceLightNavigationBars = !isNight
+        }
         // Android 15 enforces edge-to-edge: inset the fragment container so content
         // never renders under the status/navigation bars or the IME.
         val container = findViewById<android.view.View>(R.id.fragment_container)
@@ -191,6 +202,13 @@ class WizardViewModel : ViewModel() {
     var testedUrl: String = ""
     var testedAwayUrl: String = ""
     var testedKey: String = ""
+
+    /**
+     * The test under way is of a server address and key a restored backup brought: when it
+     * passes, the server screen goes on to the next step by itself, once. Any edit to the
+     * fields, and any result, clears it.
+     */
+    var continueWhenTestPasses = false
 
     private var serverTestToken = 0
 

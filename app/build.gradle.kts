@@ -19,11 +19,13 @@ android {
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "dev.immichwall"
+        // Fork ID so this build installs beside upstream's dev.immichwall. The namespace
+        // (and with it every package and the generated R class) stays dev.immichwall.
+        applicationId = "io.github.sharkusmanch.immichwall"
         minSdk = 34
         targetSdk = 35
-        versionCode = 1
-        versionName = "1.0.0"
+        versionCode = 2
+        versionName = "1.1.0"
 
         buildConfigField("String", "DEV_SERVER_URL", "\"${devServerUrl}\"")
         buildConfigField("String", "DEV_API_KEY", "\"${devApiKey}\"")
@@ -47,9 +49,25 @@ android {
         }
     }
 
+    // CI signing, read from the environment. One stable key signs debug and release so
+    // every build installs over the previous one; a fresh debug key per runner would not.
+    val ciStoreFile: String = System.getenv("SIGNING_KEYSTORE_FILE").orEmpty()
+    if (ciStoreFile.isNotBlank()) {
+        signingConfigs {
+            create("ci") {
+                storeFile = file(ciStoreFile)
+                storePassword = System.getenv("SIGNING_STORE_PASSWORD")
+                keyAlias = System.getenv("SIGNING_KEY_ALIAS")
+                keyPassword = System.getenv("SIGNING_STORE_PASSWORD")
+            }
+        }
+    }
+
     buildTypes {
         release {
-            if (releaseStoreFile.isNotBlank()) {
+            if (ciStoreFile.isNotBlank()) {
+                signingConfig = signingConfigs.getByName("ci")
+            } else if (releaseStoreFile.isNotBlank()) {
                 signingConfig = signingConfigs.getByName("release")
             }
             isMinifyEnabled = true
@@ -63,6 +81,9 @@ android {
         }
         debug {
             // inherits defaultConfig DEV_* fields
+            if (ciStoreFile.isNotBlank()) {
+                signingConfig = signingConfigs.getByName("ci")
+            }
         }
     }
 
@@ -82,6 +103,7 @@ android {
 }
 
 dependencies {
+    implementation(project(":core"))
     implementation("androidx.core:core-ktx:1.15.0")
     implementation("androidx.appcompat:appcompat:1.7.0")
     implementation("androidx.fragment:fragment-ktx:1.8.5")

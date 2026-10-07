@@ -1,5 +1,7 @@
 # Cross-module contracts (v1.1) — implement EXACTLY these public signatures
 
+> **Fork note:** the "Fork additions (v1.1)" section of [DESIGN.md](DESIGN.md) supersedes the cache layout, rotation and signatures described here for upstream v1.0.
+
 All code: package `dev.immichwall.*`, Kotlin, no dependencies beyond: kotlinx-serialization-json, okhttp 4.12.0, androidx.core/appcompat/fragment/recyclerview/work-runtime-ktx 2.10.0/exifinterface/security-crypto, material, kotlinx-coroutines-android. JSON: single shared `Json { ignoreUnknownKeys = true; encodeDefaults = true }` exposed as `dev.immichwall.api.ApiJson.json`.
 
 ```kotlin

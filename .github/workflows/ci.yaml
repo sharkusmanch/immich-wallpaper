@@ -1,0 +1,98 @@
+name: ci
+
+on:
+  push:
+    branches: ["**"]
+
+# Read-only. Publishing a release is the separate release.yml workflow, run by a v* tag.
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check button rows
+        run: python3 scripts/check-layouts.py
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Decode signing keystore
+        id: keystore
+        env:
+          SIGNING_KEYSTORE_B64: ${{ secrets.SIGNING_KEYSTORE_B64 }}
+        run: |
+          if [ -n "$SIGNING_KEYSTORE_B64" ]; then
+            echo "$SIGNING_KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/signing.p12"
+            echo "file=$RUNNER_TEMP/signing.p12" >> "$GITHUB_OUTPUT"
+          fi
+
+      # The keystore path, its password and the alias go to the Gradle steps only, not to
+      # the whole job: the other steps include actions referenced by movable tags.
+      - name: Test and build
+        env:
+          SIGNING_KEYSTORE_FILE: ${{ steps.keystore.outputs.file }}
+          SIGNING_STORE_PASSWORD: ${{ secrets.SIGNING_STORE_PASSWORD }}
+          SIGNING_KEY_ALIAS: ${{ secrets.SIGNING_KEY_ALIAS }}
+        run: |
+          # assembleRelease on every push: R8 and resource shrinking break in ways a
+          # debug build never shows, and a tag is too late to find out.
+          ./gradlew --console=plain :core:test :app:testDebugUnitTest :app:assembleDebug :app:assembleRelease
+
+      # Upstream was never linted; report without failing the build.
+      - name: Lint (report only)
+        continue-on-error: true
+        env:
+          SIGNING_KEYSTORE_FILE: ${{ steps.keystore.outputs.file }}
+          SIGNING_STORE_PASSWORD: ${{ secrets.SIGNING_STORE_PASSWORD }}
+          SIGNING_KEY_ALIAS: ${{ secrets.SIGNING_KEY_ALIAS }}
+        run: ./gradlew --console=plain :app:lintDebug
+
+      - name: Verify the shared signing key was used
+        if: steps.keystore.outputs.file != ''
+        run: |
+          apksigner="$(ls "$ANDROID_HOME"/build-tools/*/apksigner | sort -V | tail -1)"
+          "$apksigner" verify --print-certs app/build/outputs/apk/debug/app-debug.apk | tee certs.txt
+          grep -q "CN=Immich Wallpaper fork" certs.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: app-debug
+          path: app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+
+      # Uploaded on every run so the signed release build is exercised by ordinary pushes;
+      # release.yml builds its own APK from the tag.
+      - uses: actions/upload-artifact@v4
+        with:
+          name: app-release
+          path: app/build/outputs/apk/release/app-release.apk
+          if-no-files-found: error
+
+      # ci/permissions.txt is pinned to what upstream ships. That list already includes
+      # FOREGROUND_SERVICE and RECEIVE_BOOT_COMPLETED, which WorkManager's manifest merges
+      # in. This step fails if the fork ever asks for more (or the list changes at all).
+      - name: Permissions are unchanged
+        run: |
+          aapt2="$(ls "$ANDROID_HOME"/build-tools/*/aapt2 | sort -V | tail -1)"
+          "$aapt2" dump permissions app/build/outputs/apk/debug/app-debug.apk \
+            | grep "uses-permission" | sort > permissions.txt
+          cat permissions.txt
+          diff ci/permissions.txt permissions.txt
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: reports
+          path: |
+            permissions.txt
+            core/build/reports/tests
+            app/build/reports
+          if-no-files-found: ignore

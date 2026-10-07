@@ -16,36 +16,62 @@ import android.graphics.Shader
 import android.graphics.Typeface
 import android.service.wallpaper.WallpaperService
 import android.view.SurfaceHolder
+import dev.immichwall.crop.CropTarget
 import dev.immichwall.settings.SettingsRepository
+import dev.immichwall.sync.SyncScheduler
 import dev.immichwall.util.Logg
 import kotlin.math.max
 
 /**
- * Live wallpaper service. One engine serves both home and lock screen (Android 14+).
+ * Live wallpaper service. One engine serves both home and lock screen of a display
+ * (Android 14+). A foldable runs an engine per display in this one process, and the system
+ * picker adds preview engines; all of them draw the same bitmap, each scaled and slid to
+ * its own surface.
  *
- * The engine only ever DRAWS: it renders [RotationController.currentBitmap] — a pre-cropped,
- * panel-sized JPEG decoded off the render thread — or a branded placeholder before setup.
+ * An engine only ever DRAWS: it renders [RotationController.currentBitmap] — a JPEG
+ * pre-cropped to the union box of every panel shape, decoded on the render thread — or a
+ * branded placeholder before setup.
  * Advancing happens while the screen is dark (see [RotationController] / [ScreenOffReceiver]),
  * so every wake reveals an already-swapped photo with zero jank.
  */
 class PhotoWallpaperService : WallpaperService() {
 
-    private companion object {
-        const val TAG = "PhotoWallpaperSvc"
+    companion object {
+        private const val TAG = "PhotoWallpaperSvc"
 
         /** Neutral fill shown between a fresh surface and the first decoded photo (post-setup). */
-        const val PLACEHOLDER_FILL = 0xFF10161A.toInt()
+        private const val PLACEHOLDER_FILL = 0xFF10161A.toInt()
 
-        /** Guards the process-wide receiver refcount. */
-        val processLock = Any()
-        var engineCount = 0
-        var screenReceiver: ScreenOffReceiver? = null
+        /** Guards the process-wide receiver refcount and [liveSurfaces]. */
+        private val processLock = Any()
+        private var engineCount = 0
+        private var screenReceiver: ScreenOffReceiver? = null
+
+        /** Surface size of each live, non-preview engine that has one; guarded by [processLock]. */
+        private val liveSurfaces = HashMap<WallpaperService.Engine, CropTarget.Size>()
 
         /** How long the first frame may wait for the initial cache decode. */
-        const val INITIAL_LOAD_TIMEOUT_MS = 1000L
+        private const val INITIAL_LOAD_TIMEOUT_MS = 1000L
+
+        /**
+         * The surface sizes the live wallpaper engines are drawing at right now (previews
+         * excluded), each once; empty when no engine is running. Surfaces only report when
+         * they are created or resized, so this is how "Clear cached photos" finds out which
+         * remembered shapes are real without waiting for the next fold. Any thread.
+         */
+        fun liveSurfaceSizes(): List<CropTarget.Size> =
+            synchronized(processLock) { liveSurfaces.values.distinct() }
+
+        private fun onSurfaceSize(engine: WallpaperService.Engine, width: Int, height: Int) {
+            synchronized(processLock) { liveSurfaces[engine] = CropTarget.Size(width, height) }
+        }
+
+        private fun onSurfaceGone(engine: WallpaperService.Engine) {
+            synchronized(processLock) { liveSurfaces.remove(engine) }
+        }
 
         /** Register the SCREEN_OFF/SCREEN_ON receiver once per process while >=1 REAL engine exists. */
-        fun onEngineCreated(appCtx: Context) {
+        private fun onEngineCreated(appCtx: Context) {
             synchronized(processLock) {
                 engineCount++
                 if (screenReceiver == null) {
@@ -61,7 +87,7 @@ class PhotoWallpaperService : WallpaperService() {
             }
         }
 
-        fun onEngineDestroyed(appCtx: Context) {
+        private fun onEngineDestroyed(appCtx: Context) {
             synchronized(processLock) {
                 engineCount = (engineCount - 1).coerceAtLeast(0)
                 if (engineCount == 0) {
@@ -168,6 +194,7 @@ class PhotoWallpaperService : WallpaperService() {
         override fun onDestroy() {
             RotationController.removeRedrawListener(redrawCallback)
             if (!isPreview) {
+                onSurfaceGone(this)
                 onEngineDestroyed(applicationContext)
             }
             super.onDestroy()
@@ -177,18 +204,28 @@ class PhotoWallpaperService : WallpaperService() {
             super.onSurfaceChanged(holder, format, width, height)
             // The engine's surface size is the source of truth for crop dimensions.
             // Previews may run at odd sizes on some pickers, so only the real engine persists.
+            val real = !isPreview && width > 0 && height > 0
+            // Kept even while storage is locked: it is what the engine is drawing at.
+            if (real) onSurfaceSize(this, width, height)
             val s0 = settingsOrNull()
-            if (!isPreview && width > 0 && height > 0 && s0 != null) {
+            if (real && s0 != null) {
                 val s = s0
-                val differs = s.cropWidth != width || s.cropHeight != height
-                // On Android 14+ a second (lock) engine could report smaller dimensions;
-                // two engines must not fight over the crop size and re-stale the cache
-                // on every flip — only an unset or equal-or-larger surface wins.
-                val largest = width.toLong() * height >= s.cropWidth.toLong() * s.cropHeight
-                if (differs && (s.cropWidth <= 0 || largest)) {
-                    Logg.d(TAG, "surface ${width}x$height (was ${s.cropWidth}x${s.cropHeight}); persisting crop dims")
-                    s.cropWidth = width
-                    s.cropHeight = height
+                // A foldable has an engine per display, and rotation hands an engine further
+                // shapes. Photos are prepared at the union box of all of them — widest ×
+                // tallest, centred on the faces — and drawPhoto covers each surface with
+                // that one file, slid to the photo's focus point, so surfaces never fight
+                // over the crop size. An empty list beside a stored crop starts from that
+                // crop: one panel reporting alone must not shrink the box.
+                val seen = CropTarget.rememberReported(s.seenSurfaces, s.cropWidth, s.cropHeight, width, height)
+                if (seen != s.seenSurfaces) s.seenSurfaces = seen
+                val box = CropTarget.unionBox(seen)
+                if (box != null && (s.cropWidth != box.width || s.cropHeight != box.height)) {
+                    Logg.d(TAG, "surface ${width}x$height; crop box ${box.width}x${box.height} (was ${s.cropWidth}x${s.cropHeight})")
+                    val hadBox = s.cropWidth > 0
+                    s.cropWidth = box.width
+                    s.cropHeight = box.height
+                    // Cached photos are now the wrong shape; start re-preparing them.
+                    if (hadBox) SyncScheduler.kickInitialFill(applicationContext)
                 }
             }
             awaitFirstPhotoIfNeeded()
@@ -302,9 +339,9 @@ class PhotoWallpaperService : WallpaperService() {
         }
 
         /**
-         * Full-bleed centre-crop. Ready files are exactly panel-sized so this is normally the
-         * identity transform; on aspect mismatch (stale crops after a panel-size change) the
-         * photo is scaled to cover the surface and the overflow is cropped.
+         * Full-bleed cover. Ready files are the union box of every surface shape this engine
+         * has seen, so on any one panel the photo overflows in one direction; it is scaled
+         * to cover and slid so its faces stay in view (see [CropTarget.offset]).
          */
         private fun drawPhoto(canvas: Canvas, bitmap: Bitmap, alpha: Int = 255) {
             val cw = canvas.width.toFloat()
@@ -316,7 +353,13 @@ class PhotoWallpaperService : WallpaperService() {
             val scale = max(cw / bw, ch / bh)
             drawMatrix.reset()
             drawMatrix.setScale(scale, scale)
-            drawMatrix.postTranslate((cw - bw * scale) / 2f, (ch - bh * scale) / 2f)
+            // Centre the faces, as far as the photo's edges allow. On a surface the photo
+            // exactly fits this is zero, and with a centred focus it is the plain centre-crop.
+            val focus = RotationController.focusFor(bitmap)
+            drawMatrix.postTranslate(
+                CropTarget.offset(cw, bw * scale, focus[0]),
+                CropTarget.offset(ch, bh * scale, focus[1]),
+            )
             bitmapPaint.alpha = alpha
             canvas.drawBitmap(bitmap, drawMatrix, bitmapPaint)
             bitmapPaint.alpha = 255

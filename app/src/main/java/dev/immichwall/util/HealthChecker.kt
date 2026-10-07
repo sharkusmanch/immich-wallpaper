@@ -11,6 +11,7 @@ import androidx.core.app.NotificationCompat
 import androidx.work.WorkInfo
 import androidx.work.WorkManager
 import dev.immichwall.App
+import dev.immichwall.cache.CachePolicy
 import dev.immichwall.cache.PhotoCacheManager
 import dev.immichwall.settings.SettingsRepository
 import dev.immichwall.sync.SyncScheduler
@@ -59,8 +60,17 @@ object HealthChecker {
 
         // 2/3. Cache level.
         val cache = PhotoCacheManager.get(ctx)
+        // The ACTIVE cycle's photos are what the wallpaper rotates through; prefetched
+        // photos of the next cycle must not hide an active cycle that is nearly empty.
+        // While the active cycle has none at all, rotation falls back to everything
+        // cached, so then the whole cache is the right number.
+        var sourceSize: Int? = null
         val readyCount = try {
-            cache.readyCount()
+            val settings = SettingsRepository.get(ctx)
+            val activeKey = dev.immichwall.source.CycleKeys.activeKey(settings)
+            sourceSize = activeKey?.let { settings.sourceSize(it) }
+            val active = activeKey?.let { cache.countFor(it) } ?: 0
+            if (active > 0) active else cache.readyCount()
         } catch (t: Throwable) {
             Logg.w(TAG, "readyCount failed: ${t.message}")
             -1
@@ -71,7 +81,7 @@ object HealthChecker {
                 severity = 2,
                 message = "No photos are cached. The wallpaper cannot rotate until a sync succeeds."
             )
-        } else if (readyCount in 1 until PhotoCacheManager.HARD_FLOOR) {
+        } else if (CachePolicy.warnsLowCache(readyCount, PhotoCacheManager.HARD_FLOOR, sourceSize)) {
             issues += HealthIssue(
                 id = "cache-low",
                 severity = 1,

@@ -88,9 +88,8 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:text="@string/status_active_cycle"
-                    android:textAllCaps="true"
-                    android:textColor="?android:attr/textColorSecondary"
-                    android:textSize="12sp" />
+                    android:textAppearance="?attr/textAppearanceLabelMedium"
+                    android:textColor="?attr/colorOnSurfaceVariant" />
 
                 <TextView
                     android:id="@+id/status_source"
@@ -120,13 +119,14 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="12dp"
+                    android:baselineAligned="false"
                     android:orientation="horizontal">
 
                     <Button
                         android:id="@+id/status_refresh"
                         style="?attr/materialButtonOutlinedStyle"
                         android:layout_width="0dp"
-                        android:layout_height="wrap_content"
+                        android:layout_height="match_parent"
                         android:layout_marginEnd="8dp"
                         android:layout_weight="1"
                         android:text="@string/status_refresh" />
@@ -135,9 +135,64 @@
                         android:id="@+id/status_reapply"
                         style="?attr/materialButtonOutlinedStyle"
                         android:layout_width="0dp"
-                        android:layout_height="wrap_content"
+                        android:layout_height="match_parent"
                         android:layout_weight="1"
                         android:text="@string/status_reapply" />
+                </LinearLayout>
+            </LinearLayout>
+        </com.google.android.material.card.MaterialCardView>
+
+        <com.google.android.material.card.MaterialCardView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            app:cardCornerRadius="16dp"
+            app:cardElevation="0dp">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:padding="16dp">
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="@string/status_schedule_heading"
+                    android:textAppearance="?attr/textAppearanceLabelMedium"
+                    android:textColor="?attr/colorOnSurfaceVariant" />
+
+                <TextView
+                    android:id="@+id/status_schedule"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp"
+                    android:textAppearance="?attr/textAppearanceBodyMedium" />
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="12dp"
+                    android:baselineAligned="false"
+                    android:orientation="horizontal">
+
+                    <Button
+                        android:id="@+id/status_schedule_edit"
+                        style="?attr/materialButtonOutlinedStyle"
+                        android:layout_width="0dp"
+                        android:layout_height="match_parent"
+                        android:layout_weight="1"
+                        android:text="@string/status_schedule_edit" />
+
+                    <Button
+                        android:id="@+id/status_schedule_resume"
+                        style="?attr/materialButtonOutlinedStyle"
+                        android:layout_width="0dp"
+                        android:layout_height="match_parent"
+                        android:layout_marginStart="8dp"
+                        android:layout_weight="1"
+                        android:text="@string/status_schedule_resume"
+                        android:visibility="gone" />
                 </LinearLayout>
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
@@ -154,9 +209,8 @@
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
                 android:text="@string/status_cycles_heading"
-                android:textAllCaps="true"
-                android:textColor="?android:attr/textColorSecondary"
-                android:textSize="12sp" />
+                android:textAppearance="?attr/textAppearanceLabelMedium"
+                android:textColor="?attr/colorOnSurfaceVariant" />
 
             <Button
                 android:id="@+id/status_new_cycle"
@@ -171,6 +225,14 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="vertical" />
+
+        <Button
+            android:id="@+id/status_clear_cache"
+            style="@style/Widget.Material3.Button.TextButton"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="@string/status_clear_cache" />
 
         <TextView
             android:layout_width="match_parent"

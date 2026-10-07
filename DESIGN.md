@@ -1,5 +1,7 @@
 # immich-wallpaper — Design (v1.1, 2026-07-16)
 
+> **Fork note:** the ["Fork additions (v1.1)"](#fork-additions-v11) section at the end of this document supersedes the cache layout, rotation and signatures described here for upstream v1.0.
+
 Android live-wallpaper app: every screen-on shows a **new** photo on **both** lock and home screen, drawn from a configurable Immich **source** — person(s), album, CLIP smart-search query, location, favorites, memories (on-this-day), or the whole library. Like iOS photo-shuffle, but self-hosted and far more capable.
 
 Architecture selected by a 3-lens adversarial design review (reliability 8–4, UX/battery 9–5, simplicity 8–4 in favor of the live-wallpaper approach over a WallpaperManager setter service). Judge-mandated fixes are folded in below and marked **[FIX]**.
@@ -138,3 +140,43 @@ Contracts (exact signatures) live in `CONTRACTS.kt` notes inside each agent brie
 
 ## Phase 0 spike (before polishing anything)
 Minimal APK: hardcoded-photo engine + screen-off advance → sideload → verify on the Pixel: (a) lock+home both render engine, (b) advance at wake works from inside-app screen-off, (c) survives reboot in secondary profile, (d) AOD interaction. This de-risks the one open platform question before the full build.
+
+## Fork additions (v1.1)
+
+- **Module split.** Pure logic lives in `:core` (plain Kotlin/JVM, unit tested): the Immich
+  API client and models, `schedule/`, `cache/CachePolicy`, `crop/CropTarget`. `:app` is the
+  Android shell around it.
+- **Schedule.** `ScheduleResolver` maps a date to a cycle (ordered `MM-DD` ranges, inclusive,
+  first match wins, year wrap, default). `SchedulePlan` adds the manual override and the
+  retention window (today plus two days). `ScheduleApplier` turns the answer into
+  `activateCycle`; it runs at the first screen-off and the first screen-on of each day,
+  before the first load after a restart, at the start of every sync, when the app is
+  opened, and on every edit. No alarms.
+- **Cache partitioned by cycle.** An entry is identified by cycle key and asset id; files
+  live in `ready/<key prefix>/`. Rotation draws only from the active cycle (while that cycle
+  is empty, from the cycle already on screen, never from one that is only prefetched). Each
+  sync fills the active cycle and prefetches the ones in the retention window, then deletes
+  photos of cycles outside it once the active cycle has a photo.
+- **Foldables.** Photos are cropped to the union box of every surface shape the engine has
+  seen, and each cache entry records where its faces are; the engine slides the photo so
+  they stay in view on whichever panel is active.
+- **Transport.** HTTPS only; an address with user info (`user@host`), whitespace, a control
+  character or an invisible format character is refused, typed or restored, and a restored
+  one is stored in the form built from the parsed URL (the host as resolved, punycode
+  included), so what is shown is where the key goes; redirects are followed only within the same origin; downloads
+  and JSON bodies are size-capped; asset ids must be UUIDs. Sync runs are serialized and
+  stop when WorkManager replaces them.
+- **Backup.** `:core` `dev.immichwall.backup`: one JSON file (marker, `format` 1, cycles,
+  active cycle, schedule, six options, optional server block). The server block (address,
+  away address, API key; unencrypted) is opt-in at export, off by default. Never in the file:
+  photos, the manual schedule override, debug date, crop sizes, sync bookkeeping. Decode never
+  throws: a non-backup, a file over 1 MB or not UTF-8 is refused, a higher `format` is refused
+  as newer, and nothing changes. Restored options are coerced to what the options screen
+  offers; the server block is applied only if it validates, and then when the user ticks it
+  on the settings screen or, without asking further, by the restore on the first-run
+  wizard's server screen (which then runs the connection test); the restore on the wizard's
+  source step never applies it. Cycles, schedule and options are applied in one commit under
+  the cycles lock.
+- **Low-cache warning.** `CachePolicy.warnsLowCache` stays quiet when the last good sync
+  proved the source holds fewer photos than the floor (`knownSourceSize`; unknown for
+  any-of-people and smart-search sources, which fall back to warning).

@@ -98,13 +98,14 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_marginTop="8dp"
+        android:baselineAligned="false"
         android:orientation="horizontal">
 
         <Button
             android:id="@+id/preview_save"
             style="?attr/materialButtonOutlinedStyle"
             android:layout_width="0dp"
-            android:layout_height="wrap_content"
+            android:layout_height="match_parent"
             android:layout_marginEnd="8dp"
             android:layout_weight="1"
             android:enabled="false"
@@ -114,7 +115,7 @@
         <Button
             android:id="@+id/preview_confirm"
             android:layout_width="0dp"
-            android:layout_height="wrap_content"
+            android:layout_height="match_parent"
             android:layout_weight="1"
             android:enabled="false"
             android:text="@string/preview_confirm" />
