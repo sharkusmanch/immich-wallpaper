@@ -23,6 +23,7 @@ import dev.immichwall.backup.BackupPrompts
 import dev.immichwall.backup.BackupRestore
 import dev.immichwall.backup.RestoreOutcome
 import dev.immichwall.backup.RestorePrompt
+import dev.immichwall.backup.ServerUse
 import dev.immichwall.schedule.ScheduleApplier
 import dev.immichwall.settings.BackupApplied
 import dev.immichwall.settings.SettingsRepository
@@ -48,21 +49,21 @@ import kotlinx.coroutines.withContext
  * restore at a time: [start] does nothing until the one before it is over, so the
  * confirmation on screen always describes the backup that "Restore" applies.
  *
- * @param offerServer whether the confirmation may offer to replace the server address and
- *   API key when the backup holds them (the user's choice, off by default). False = they
- *   are never applied from this screen.
+ * @param serverUse what this screen does with a server address and API key the backup
+ *   holds: offers them as the user's choice, never applies them, or uses them.
  * @param onBusy true while a restore is being applied, false once it is over: the host
  *   should not let its own settings be saved in between.
  * @param onRestored the stored settings were replaced; redraw anything that shows them.
- *   Called with the host at least started.
+ *   The argument says whether the server address and API key were replaced too. Called
+ *   once per restore, with the host at least started.
  * @param onUnfinished applying failed part-way, so the stored settings may or may not have
  *   changed; redraw anything that shows them. Called with the host at least started.
  */
 class SettingsRestoreFlow(
     private val fragment: Fragment,
-    private val offerServer: Boolean,
+    private val serverUse: ServerUse,
     private val onBusy: (Boolean) -> Unit = {},
-    private val onRestored: () -> Unit,
+    private val onRestored: (serverApplied: Boolean) -> Unit,
     private val onUnfinished: () -> Unit = {},
 ) {
 
@@ -70,7 +71,7 @@ class SettingsRestoreFlow(
 
     private val openDocument = fragment.registerForActivityResult(
         ActivityResultContracts.OpenDocument()
-    ) { uri -> model.picked(uri, offerServer) }
+    ) { uri -> model.picked(uri, serverUse) }
 
     init {
         fragment.lifecycle.addObserver(object : DefaultLifecycleObserver {
@@ -92,7 +93,7 @@ class SettingsRestoreFlow(
         try {
             openDocument.launch(MIME_TYPES)
         } catch (e: ActivityNotFoundException) {
-            model.picked(null, offerServer)
+            model.picked(null, serverUse)
             toast(R.string.backup_no_picker)
         }
     }
@@ -123,15 +124,19 @@ class SettingsRestoreFlow(
                     if (SettingsRepository.get(fragment.requireContext()).isConfigured) R.string.restore_done
                     else R.string.restore_done_setup
                 )
-                RestoreOutcome.RESTORED_WITH_SERVER -> toast(R.string.restore_done_with_server)
+                RestoreOutcome.RESTORED_WITH_SERVER -> toast(
+                    if (SettingsRepository.get(fragment.requireContext()).isConfigured) R.string.restore_done_with_server
+                    else R.string.restore_done_with_server_setup
+                )
                 RestoreOutcome.RESTORED_SERVER_KEPT -> BackupMessageDialog.show(fragment, R.string.restore_done_server_kept)
+                RestoreOutcome.RESTORED_SERVER_TO_ENTER -> toast(R.string.restore_done_server_to_enter)
                 RestoreOutcome.UNFINISHED -> BackupMessageDialog.show(fragment, R.string.restore_unfinished)
             }
             if (shown) {
                 when (event.outcome) {
                     RestoreOutcome.NOTHING_RESTORED -> Unit
                     RestoreOutcome.UNFINISHED -> onUnfinished()
-                    else -> onRestored()
+                    else -> onRestored(event.outcome == RestoreOutcome.RESTORED_WITH_SERVER)
                 }
             }
             shown
@@ -158,7 +163,8 @@ class SettingsRestoreFlow(
          *
          * The apply and the schedule's follow-up run under [ScheduleApplier]'s monitor, so no
          * [ScheduleApplier.applyIfDue] elsewhere can plan against the old cycles and activate
-         * one of them afterwards. When a server block is going in, syncing is stopped first.
+         * one of them afterwards. When a server block is going in, syncing is stopped first
+         * (before setup is finished there is none to stop, and none is started after).
          * Locks, outermost first: the sync run lock, [ScheduleApplier], then the settings'
          * own; the same order a sync run takes them in.
          */
@@ -215,6 +221,9 @@ class SettingsRestoreViewModel(app: Application) : AndroidViewModel(app) {
     val applying = MutableStateFlow(false)
 
     private var pending: Backup? = null
+
+    /** What the screen the waiting backup was picked on does with a server block. */
+    private var pendingServerUse = ServerUse.IGNORED
     val hasPending: Boolean get() = pending != null
 
     private var picking = false
@@ -231,12 +240,12 @@ class SettingsRestoreViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     /** The picker closed, with [uri] or (null) without a file. */
-    fun picked(uri: Uri?, offerServer: Boolean) {
+    fun picked(uri: Uri?, serverUse: ServerUse) {
         picking = false
-        if (uri != null) read(uri, offerServer)
+        if (uri != null) read(uri, serverUse)
     }
 
-    private fun read(uri: Uri, offerServer: Boolean) {
+    private fun read(uri: Uri, serverUse: ServerUse) {
         reading = true
         viewModelScope.launch {
             val result = withContext(Dispatchers.IO) {
@@ -249,15 +258,17 @@ class SettingsRestoreViewModel(app: Application) : AndroidViewModel(app) {
                 }
             }
             pending = (result as? BackupDecodeResult.Ok)?.backup
+            pendingServerUse = serverUse
             reading = false
             event.value =
-                if (result == null) Event.Unreadable else Event.Read(BackupPrompts.restorePrompt(result, offerServer))
+                if (result == null) Event.Unreadable else Event.Read(BackupPrompts.restorePrompt(result, serverUse))
         }
     }
 
     /** The user confirmed: applies the waiting backup, once. */
     fun confirm(replaceServer: Boolean) {
         val backup = pending ?: return
+        val serverUse = pendingServerUse
         pending = null
         applying.value = true
         viewModelScope.launch {
@@ -272,7 +283,9 @@ class SettingsRestoreViewModel(app: Application) : AndroidViewModel(app) {
             }
             applying.value = false
             event.value = Event.Applied(
-                BackupPrompts.restoreOutcome(backup, replaceServer, applied?.applied, applied?.serverApplied == true)
+                BackupPrompts.restoreOutcome(
+                    backup, serverUse, replaceServer, applied?.applied, applied?.serverApplied == true,
+                )
             )
         }
     }

@@ -19,8 +19,11 @@ import dev.immichwall.BuildConfig
 import dev.immichwall.R
 import dev.immichwall.api.CheckResult
 import dev.immichwall.api.ServerUrl
+import dev.immichwall.backup.BackupRestore
+import dev.immichwall.backup.ServerUse
 import dev.immichwall.settings.SettingsRepository
 import dev.immichwall.ui.MainActivity
+import dev.immichwall.ui.SettingsRestoreFlow
 import dev.immichwall.ui.WizardViewModel
 import dev.immichwall.ui.afterTextChanged
 import kotlinx.coroutines.launch
@@ -33,13 +36,38 @@ import kotlinx.coroutines.launch
  *
  * Test state/results live in [WizardViewModel.serverTest] so green checks (and
  * an in-flight test) survive rotation; real edits to any field reset to Idle.
+ *
+ * In first-run setup the screen also offers "Restore from a backup". A backup that holds a
+ * usable server address and API key fills the fields with them and is tested like typed
+ * ones; when every check passes, setup goes on by itself. Once cycles are stored (restored
+ * here or on the next step), Continue goes to the options step: there is no photo source
+ * left to choose.
  */
 class ServerSetupFragment : Fragment(R.layout.fragment_server_setup) {
+
+    private val vm: WizardViewModel
+        get() = ViewModelProvider(requireActivity())[WizardViewModel::class.java]
+
+    /** A backup is being applied: nothing here may store or test the fields in between. */
+    private var restoring = false
+
+    /** Offered in first-run setup only, in place of typing the address and key. */
+    private val restore = SettingsRestoreFlow(
+        this,
+        serverUse = ServerUse.USED,
+        onBusy = { busy ->
+            restoring = busy
+            view?.findViewById<Button>(R.id.server_restore)?.isEnabled = !busy
+        },
+        // Without a server block applied the address and key are still to be entered: the
+        // fields stay as they are, and what was restored is picked up by Continue.
+        onRestored = { serverApplied -> if (serverApplied) view?.let(::testRestoredServer) },
+    )
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
         val settings = SettingsRepository.get(requireContext())
-        val vm = ViewModelProvider(requireActivity())[WizardViewModel::class.java]
+        val vm = vm
 
         val urlField = view.findViewById<TextInputEditText>(R.id.server_url)
         val awayField = view.findViewById<TextInputEditText>(R.id.server_away)
@@ -68,6 +96,7 @@ class ServerSetupFragment : Fragment(R.layout.fragment_server_setup) {
             val away = normalizeUrl(awayField.text?.toString().orEmpty())
             val key = keyField.text?.toString()?.trim().orEmpty()
             if (url != vm.testedUrl || away != vm.testedAwayUrl || key != vm.testedKey) {
+                vm.continueWhenTestPasses = false
                 if (vm.serverTest.value != WizardViewModel.ServerTestState.Idle) {
                     vm.serverTest.value = WizardViewModel.ServerTestState.Idle
                 }
@@ -103,70 +132,110 @@ class ServerSetupFragment : Fragment(R.layout.fragment_server_setup) {
                             progress.visibility = View.GONE
                             testButton.isEnabled = true
                             renderResults(checksContainer, state.results)
-                            continueButton.isEnabled =
-                                state.results.isNotEmpty() && state.results.all { it.ok }
+                            val passed = state.results.isNotEmpty() && state.results.all { it.ok }
+                            continueButton.isEnabled = passed
+                            // Once per restore: the flag lives with the test, so a
+                            // recreation neither loses it mid-test nor finds it again after.
+                            if (vm.continueWhenTestPasses) {
+                                vm.continueWhenTestPasses = false
+                                if (passed) continueSetup(view)
+                            }
                         }
                     }
                 }
             }
         }
 
-        testButton.setOnClickListener {
-            val url = normalizeUrl(urlField.text?.toString().orEmpty())
-            val away = normalizeUrl(awayField.text?.toString().orEmpty())
-            val key = keyField.text?.toString()?.trim().orEmpty()
-            if (ServerUrl.normalize(urlField.text?.toString().orEmpty()) == null ||
-                ServerUrl.normalize(awayField.text?.toString().orEmpty()) == null
-            ) {
-                Toast.makeText(requireContext(), R.string.server_https_only, Toast.LENGTH_LONG).show()
-                return@setOnClickListener
-            }
-            if (url.isBlank() || key.isBlank()) {
-                Toast.makeText(requireContext(), R.string.server_missing_fields, Toast.LENGTH_SHORT).show()
-                return@setOnClickListener
-            }
-            vm.testedUrl = url
-            vm.testedAwayUrl = away
-            vm.testedKey = key
-            vm.runServerTest(url, key, getString(R.string.server_check_connection))
+        testButton.setOnClickListener { startTest(view) }
+        continueButton.setOnClickListener { continueSetup(view) }
+
+        // The same test MainActivity uses to choose between the wizard and the status screen.
+        if (!settings.isConfigured) {
+            view.findViewById<View>(R.id.server_restore_section).visibility = View.VISIBLE
+            view.findViewById<Button>(R.id.server_restore).setOnClickListener { restore.start() }
+        }
+    }
+
+    private fun fieldText(view: View, id: Int): String =
+        view.findViewById<TextInputEditText>(id).text?.toString().orEmpty()
+
+    /** "Test connection". False when the fields cannot be tested as they are. */
+    private fun startTest(view: View): Boolean {
+        if (restoring) return false
+        val url = normalizeUrl(fieldText(view, R.id.server_url))
+        val away = normalizeUrl(fieldText(view, R.id.server_away))
+        val key = fieldText(view, R.id.server_key).trim()
+        if (ServerUrl.normalize(fieldText(view, R.id.server_url)) == null ||
+            ServerUrl.normalize(fieldText(view, R.id.server_away)) == null
+        ) {
+            Toast.makeText(requireContext(), R.string.server_https_only, Toast.LENGTH_LONG).show()
+            return false
+        }
+        if (url.isBlank() || key.isBlank()) {
+            Toast.makeText(requireContext(), R.string.server_missing_fields, Toast.LENGTH_SHORT).show()
+            return false
+        }
+        vm.testedUrl = url
+        vm.testedAwayUrl = away
+        vm.testedKey = key
+        vm.runServerTest(url, key, getString(R.string.server_check_connection))
+        return true
+    }
+
+    /**
+     * A restore stored the backup's server address and key: shows them, read back from the
+     * settings as when the screen is opened, and tests them as "Test connection" does.
+     */
+    private fun testRestoredServer(view: View) {
+        val settings = SettingsRepository.get(requireContext())
+        view.findViewById<TextInputEditText>(R.id.server_url).setText(settings.serverUrl)
+        view.findViewById<TextInputEditText>(R.id.server_away).setText(settings.awayUrl)
+        view.findViewById<TextInputEditText>(R.id.server_key).setText(settings.apiKey)
+        vm.continueWhenTestPasses = startTest(view)
+    }
+
+    /** "Continue": stores the tested fields and goes to the next step. */
+    private fun continueSetup(view: View) {
+        if (restoring) return
+        val settings = SettingsRepository.get(requireContext())
+        val vm = vm
+        val url = normalizeUrl(fieldText(view, R.id.server_url))
+        val away = normalizeUrl(fieldText(view, R.id.server_away))
+        val key = fieldText(view, R.id.server_key).trim()
+        // Defense in depth: besides an all-green result, the current field values
+        // must be exactly what that result was produced for.
+        val state = vm.serverTest.value
+        val validated = state is WizardViewModel.ServerTestState.Done &&
+            state.results.isNotEmpty() && state.results.all { it.ok } &&
+            url == vm.testedUrl && away == vm.testedAwayUrl && key == vm.testedKey
+        if (!validated) return
+
+        // Server-derived wizard state (people list, person/album IDs) belongs to
+        // the previously confirmed server; a config change invalidates all of it.
+        if (url != vm.serverUrl || key != vm.apiKey) {
+            vm.peopleCache = null
+            vm.selectedPersonIds.clear()
+            vm.selectedPersonNames.clear()
+            vm.draftPersonIds.clear()
+            vm.smartPersonIds.clear()
+            vm.smartPersonNames.clear()
+            vm.albumId = ""
+            vm.albumName = ""
         }
 
-        continueButton.setOnClickListener {
-            val url = normalizeUrl(urlField.text?.toString().orEmpty())
-            val away = normalizeUrl(awayField.text?.toString().orEmpty())
-            val key = keyField.text?.toString()?.trim().orEmpty()
-            // Defense in depth: besides an all-green result, the current field values
-            // must be exactly what that result was produced for.
-            val state = vm.serverTest.value
-            val validated = state is WizardViewModel.ServerTestState.Done &&
-                state.results.isNotEmpty() && state.results.all { it.ok } &&
-                url == vm.testedUrl && away == vm.testedAwayUrl && key == vm.testedKey
-            if (!validated) return@setOnClickListener
+        settings.serverUrl = url
+        settings.awayUrl = away
+        settings.apiKey = key
+        settings.lastGoodBaseUrl = url
 
-            // Server-derived wizard state (people list, person/album IDs) belongs to
-            // the previously confirmed server; a config change invalidates all of it.
-            if (url != vm.serverUrl || key != vm.apiKey) {
-                vm.peopleCache = null
-                vm.selectedPersonIds.clear()
-                vm.selectedPersonNames.clear()
-                vm.draftPersonIds.clear()
-                vm.smartPersonIds.clear()
-                vm.smartPersonNames.clear()
-                vm.albumId = ""
-                vm.albumName = ""
-            }
+        vm.serverUrl = url
+        vm.awayUrl = away
+        vm.apiKey = key
 
-            settings.serverUrl = url
-            settings.awayUrl = away
-            settings.apiKey = key
-            settings.lastGoodBaseUrl = url
-
-            vm.serverUrl = url
-            vm.awayUrl = away
-            vm.apiKey = key
-
-            (requireActivity() as MainActivity).navigateTo(SourcePickerFragment())
-        }
+        // From what is stored, not from what happened on this visit: the cycles may have
+        // been restored before the app was closed, or on the next step before coming back.
+        val skipSource = BackupRestore.setupSkipsSourceStep(settings.isConfigured, settings.savedCycles.size)
+        (requireActivity() as MainActivity).navigateTo(if (skipSource) OptionsFragment() else SourcePickerFragment())
     }
 
     private fun renderResults(container: LinearLayout, results: List<CheckResult>) {

@@ -12,13 +12,15 @@ import androidx.lifecycle.ViewModelProvider
 import com.google.android.material.checkbox.MaterialCheckBox
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import dev.immichwall.R
+import dev.immichwall.backup.BackupPrompts
 import dev.immichwall.backup.RestorePrompt
 import dev.immichwall.backup.ServerPart
 
 /**
  * Says what restoring the picked backup will replace, before anything changes. When the
- * backup holds a server address and key and the screen may apply them, replacing the current
- * ones is a checkbox, off unless ticked.
+ * backup holds a server address and key and the screen offers them as a choice, replacing
+ * the current ones is a checkbox, off unless ticked; where the screen uses them (first-run
+ * setup's server screen) the text says so instead, or says they are still to be entered.
  *
  * Shown by [SettingsRestoreFlow] in the host's child fragment manager. The backup itself
  * waits in the host's [SettingsRestoreViewModel]; "Restore" is the only thing that applies
@@ -58,6 +60,9 @@ class RestoreConfirmDialog : DialogFragment() {
                     ServerPart.NOT_IN_FILE -> R.string.restore_confirm_server_none
                     ServerPart.IGNORED -> R.string.restore_confirm_server_ignored
                     ServerPart.OPTIONAL -> R.string.restore_confirm_server_optional
+                    ServerPart.USED -> R.string.restore_confirm_server_used
+                    ServerPart.TO_ENTER -> R.string.restore_confirm_server_to_enter
+                    ServerPart.INVALID_TO_ENTER -> R.string.restore_confirm_server_invalid_to_enter
                 }
             ),
         ).joinToString("\n\n")
@@ -69,7 +74,7 @@ class RestoreConfirmDialog : DialogFragment() {
             .setTitle(R.string.restore_confirm_title)
             .setView(content)
             .setPositiveButton(R.string.restore_confirm_confirm) { _, _ ->
-                model.confirm(replaceServer = server == ServerPart.OPTIONAL && replaceServer.isChecked)
+                model.confirm(replaceServer = BackupPrompts.appliesServer(server, replaceServer.isChecked))
             }
             .setNegativeButton(android.R.string.cancel) { _, _ -> model.dropPending() }
             .create()

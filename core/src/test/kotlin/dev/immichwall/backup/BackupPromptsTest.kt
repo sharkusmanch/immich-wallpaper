@@ -29,16 +29,24 @@ class BackupPromptsTest {
         options = options,
     )
 
-    private fun prompt(b: Backup, offerServer: Boolean) =
-        BackupPrompts.restorePrompt(BackupDecodeResult.Ok(b), offerServer)
+    private val unusable = listOf(
+        server.copy(serverUrl = "http://photos.example.test"),
+        server.copy(awayUrl = "not a url"),
+        server.copy(apiKey = "  "),
+    )
+
+    private fun prompt(b: Backup, serverUse: ServerUse) =
+        BackupPrompts.restorePrompt(BackupDecodeResult.Ok(b), serverUse)
+
+    private fun serverPart(b: Backup, serverUse: ServerUse) = (prompt(b, serverUse) as RestorePrompt.Confirm).server
 
     @Test
-    fun `refusals pass through, whatever the screen offers`() {
-        for (offer in listOf(true, false)) {
-            assertEquals(RestorePrompt.NotABackup, BackupPrompts.restorePrompt(BackupDecodeResult.NotABackup, offer))
+    fun `refusals pass through, whatever the screen does with a server block`() {
+        for (use in ServerUse.entries) {
+            assertEquals(RestorePrompt.NotABackup, BackupPrompts.restorePrompt(BackupDecodeResult.NotABackup, use))
             assertEquals(
                 RestorePrompt.NewerFormat,
-                BackupPrompts.restorePrompt(BackupDecodeResult.NewerFormat(7), offer),
+                BackupPrompts.restorePrompt(BackupDecodeResult.NewerFormat(7), use),
             )
         }
     }
@@ -47,28 +55,66 @@ class BackupPromptsTest {
     fun `the confirmation carries the backup's counts and whether options come along`() {
         assertEquals(
             RestorePrompt.Confirm(cycleCount = 2, scheduleEntryCount = 3, replacesOptions = true, server = ServerPart.NOT_IN_FILE),
-            prompt(backup, offerServer = true),
+            prompt(backup, ServerUse.OPTIONAL),
         )
         assertEquals(
             RestorePrompt.Confirm(2, 0, replacesOptions = false, server = ServerPart.NOT_IN_FILE),
-            prompt(backup.copy(schedule = Schedule(), options = null), offerServer = true),
+            prompt(backup.copy(schedule = Schedule(), options = null), ServerUse.OPTIONAL),
+        )
+        assertEquals(
+            RestorePrompt.Confirm(2, 3, replacesOptions = true, server = ServerPart.USED),
+            prompt(backup.copy(server = server), ServerUse.USED),
         )
     }
 
     @Test
-    fun `a server block is a choice only where the screen offers it`() {
+    fun `a server block is a choice on the settings screen and ignored on the source step`() {
         val withServer = backup.copy(server = server)
-        assertEquals(ServerPart.OPTIONAL, (prompt(withServer, offerServer = true) as RestorePrompt.Confirm).server)
-        assertEquals(ServerPart.IGNORED, (prompt(withServer, offerServer = false) as RestorePrompt.Confirm).server)
-        assertEquals(ServerPart.NOT_IN_FILE, (prompt(backup, offerServer = false) as RestorePrompt.Confirm).server)
+        assertEquals(ServerPart.OPTIONAL, serverPart(withServer, ServerUse.OPTIONAL))
+        assertEquals(ServerPart.IGNORED, serverPart(withServer, ServerUse.IGNORED))
+        assertEquals(ServerPart.NOT_IN_FILE, serverPart(backup, ServerUse.IGNORED))
+        // Whether the block could be stored is found out on apply there, and reported then.
+        for (bad in unusable) {
+            assertEquals(ServerPart.OPTIONAL, serverPart(backup.copy(server = bad), ServerUse.OPTIONAL))
+            assertEquals(ServerPart.IGNORED, serverPart(backup.copy(server = bad), ServerUse.IGNORED))
+        }
+    }
+
+    @Test
+    fun `the server screen uses a usable server block and says so`() {
+        assertEquals(ServerPart.USED, serverPart(backup.copy(server = server), ServerUse.USED))
+        // Usable once normalized, as it will be stored.
+        assertEquals(
+            ServerPart.USED,
+            serverPart(backup.copy(server = BackupServer(" photos.example.test/ ", "", " made-up-key\n")), ServerUse.USED),
+        )
+    }
+
+    @Test
+    fun `on the server screen a backup without a usable server block leaves them to be entered`() {
+        assertEquals(ServerPart.TO_ENTER, serverPart(backup, ServerUse.USED))
+        for (bad in unusable) {
+            assertEquals(ServerPart.INVALID_TO_ENTER, serverPart(backup.copy(server = bad), ServerUse.USED))
+        }
+    }
+
+    @Test
+    fun `the server block is applied when the screen uses it or the user ticked the choice`() {
+        for (ticked in listOf(true, false)) {
+            assertEquals(true, BackupPrompts.appliesServer(ServerPart.USED, ticked))
+            assertEquals(ticked, BackupPrompts.appliesServer(ServerPart.OPTIONAL, ticked))
+            for (part in listOf(ServerPart.NOT_IN_FILE, ServerPart.IGNORED, ServerPart.TO_ENTER, ServerPart.INVALID_TO_ENTER)) {
+                assertEquals(false, BackupPrompts.appliesServer(part, ticked))
+            }
+        }
     }
 
     @Test
     fun `nothing applied is never reported as a restore`() {
-        for (requested in listOf(true, false)) for (serverApplied in listOf(true, false)) {
+        for (use in ServerUse.entries) for (requested in listOf(true, false)) for (serverApplied in listOf(true, false)) {
             assertEquals(
                 RestoreOutcome.NOTHING_RESTORED,
-                BackupPrompts.restoreOutcome(backup.copy(server = server), requested, applied = false, serverApplied = serverApplied),
+                BackupPrompts.restoreOutcome(backup.copy(server = server), use, requested, applied = false, serverApplied = serverApplied),
             )
         }
     }
@@ -77,7 +123,7 @@ class BackupPromptsTest {
     fun `restore outcome says what happened to the server address and key`() {
         val withServer = backup.copy(server = server)
         fun outcome(b: Backup, requested: Boolean, serverApplied: Boolean) =
-            BackupPrompts.restoreOutcome(b, requested, applied = true, serverApplied = serverApplied)
+            BackupPrompts.restoreOutcome(b, ServerUse.OPTIONAL, requested, applied = true, serverApplied = serverApplied)
         assertEquals(RestoreOutcome.RESTORED, outcome(withServer, requested = false, serverApplied = false))
         assertEquals(RestoreOutcome.RESTORED, outcome(backup, requested = false, serverApplied = false))
         assertEquals(RestoreOutcome.RESTORED_WITH_SERVER, outcome(withServer, requested = true, serverApplied = true))
@@ -87,16 +133,39 @@ class BackupPromptsTest {
         assertEquals(RestoreOutcome.RESTORED, outcome(backup, requested = true, serverApplied = false))
         // What apply did is what gets reported.
         assertEquals(RestoreOutcome.RESTORED_WITH_SERVER, outcome(withServer, requested = false, serverApplied = true))
+        // The source step never asks for the block.
+        assertEquals(
+            RestoreOutcome.RESTORED,
+            BackupPrompts.restoreOutcome(withServer, ServerUse.IGNORED, serverRequested = false, applied = true, serverApplied = false),
+        )
+    }
+
+    @Test
+    fun `on the server screen a restore either brought the server address and key or leaves them to be entered`() {
+        val withServer = backup.copy(server = server)
+        fun outcome(b: Backup, requested: Boolean, serverApplied: Boolean) =
+            BackupPrompts.restoreOutcome(b, ServerUse.USED, requested, applied = true, serverApplied = serverApplied)
+        assertEquals(RestoreOutcome.RESTORED_WITH_SERVER, outcome(withServer, requested = true, serverApplied = true))
+        // No block in the file, or one that was not usable, so not asked for.
+        assertEquals(RestoreOutcome.RESTORED_SERVER_TO_ENTER, outcome(backup, requested = false, serverApplied = false))
+        assertEquals(
+            RestoreOutcome.RESTORED_SERVER_TO_ENTER,
+            outcome(backup.copy(server = unusable.first()), requested = false, serverApplied = false),
+        )
+        // Asked for and rejected on apply all the same: the same place, nothing of the user's was "kept".
+        assertEquals(RestoreOutcome.RESTORED_SERVER_TO_ENTER, outcome(withServer, requested = true, serverApplied = false))
     }
 
     @Test
     fun `an apply that threw is neither a restore nor nothing changed`() {
         val withServer = backup.copy(server = server)
-        for (b in listOf(backup, withServer)) for (requested in listOf(true, false)) for (serverApplied in listOf(true, false)) {
-            assertEquals(
-                RestoreOutcome.UNFINISHED,
-                BackupPrompts.restoreOutcome(b, requested, applied = null, serverApplied = serverApplied),
-            )
+        for (b in listOf(backup, withServer)) for (use in ServerUse.entries) for (requested in listOf(true, false)) {
+            for (serverApplied in listOf(true, false)) {
+                assertEquals(
+                    RestoreOutcome.UNFINISHED,
+                    BackupPrompts.restoreOutcome(b, use, requested, applied = null, serverApplied = serverApplied),
+                )
+            }
         }
     }
 

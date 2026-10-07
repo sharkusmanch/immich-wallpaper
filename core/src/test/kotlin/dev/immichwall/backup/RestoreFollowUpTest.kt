@@ -37,4 +37,22 @@ class RestoreFollowUpTest {
             assertEquals(false, startsSyncing(configured = false, applied = applied, syncsStopped = stopped))
         }
     }
+
+    @Test
+    fun `setup with cycles already stored goes on at the options step`() {
+        assertEquals(true, BackupRestore.setupSkipsSourceStep(configured = false, cycleCount = 2))
+        assertEquals(true, BackupRestore.setupSkipsSourceStep(configured = false, cycleCount = 1))
+    }
+
+    @Test
+    fun `setup with no cycles yet still has to choose a photo source`() {
+        assertEquals(false, BackupRestore.setupSkipsSourceStep(configured = false, cycleCount = 0))
+    }
+
+    @Test
+    fun `a finished setup never skips the source step`() {
+        for (count in listOf(0, 1, 5)) {
+            assertEquals(false, BackupRestore.setupSkipsSourceStep(configured = true, cycleCount = count))
+        }
+    }
 }

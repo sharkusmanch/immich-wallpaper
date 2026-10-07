@@ -203,6 +203,13 @@ class WizardViewModel : ViewModel() {
     var testedAwayUrl: String = ""
     var testedKey: String = ""
 
+    /**
+     * The test under way is of a server address and key a restored backup brought: when it
+     * passes, the server screen goes on to the next step by itself, once. Any edit to the
+     * fields, and any result, clears it.
+     */
+    var continueWhenTestPasses = false
+
     private var serverTestToken = 0
 
     /**

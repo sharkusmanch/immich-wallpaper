@@ -9,6 +9,7 @@ import androidx.fragment.app.Fragment
 import com.google.android.material.slider.Slider
 import com.google.android.material.switchmaterial.SwitchMaterial
 import dev.immichwall.R
+import dev.immichwall.backup.ServerUse
 import dev.immichwall.settings.OptionChoices
 import dev.immichwall.settings.SettingsRepository
 import dev.immichwall.sync.SyncScheduler
@@ -28,7 +29,7 @@ class OptionsFragment : Fragment(R.layout.fragment_options) {
     /** Never offered in the wizard's options step; the settings page shows its buttons. */
     private val restore = SettingsRestoreFlow(
         this,
-        offerServer = true,
+        serverUse = ServerUse.OPTIONAL,
         onBusy = { busy ->
             // Saving the form while a restore is being applied would write the form's old
             // values over the restored ones.

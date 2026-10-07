@@ -23,6 +23,7 @@
     <string name="server_continue">Continue</string>
     <string name="server_missing_fields">Enter the server URL and API key first</string>
     <string name="server_check_connection">Connection</string>
+    <string name="server_restore_helper">Or set up from a backup file:</string>
 
     <!-- Source picker -->
     <string name="source_title">Choose a photo source</string>
@@ -286,11 +287,16 @@
     <string name="restore_confirm_server_none">Your server address and API key are kept.</string>
     <string name="restore_confirm_server_ignored">The backup also holds a server address and API key. They are ignored: the ones you just entered stay.</string>
     <string name="restore_confirm_server_optional">The backup also holds a server address and API key. Yours are kept unless you choose to replace them:</string>
+    <string name="restore_confirm_server_used">The server address and API key in the backup will be used, and the connection tested.</string>
+    <string name="restore_confirm_server_to_enter">The backup holds no server address and API key: you still have to enter them here.</string>
+    <string name="restore_confirm_server_invalid_to_enter">The server address or API key in the backup is not valid: you still have to enter them here.</string>
     <string name="restore_confirm_replace_server">Also replace my server address and API key</string>
     <string name="restore_confirm_confirm">Restore</string>
     <string name="restore_done">Settings restored — fetching photos</string>
     <string name="restore_done_setup">Settings restored from the backup</string>
     <string name="restore_done_with_server">Settings and server details restored — fetching photos</string>
+    <string name="restore_done_with_server_setup">Settings and server details restored — testing the connection</string>
+    <string name="restore_done_server_to_enter">Settings restored. Now enter your server address and API key.</string>
     <string name="restore_done_server_kept">Your cycles and schedule were restored. The server address or API key in the backup is not valid, so yours were left as they were.</string>
     <string name="restore_nothing">Nothing was restored: the backup holds no cycles.</string>
     <string name="restore_unfinished">The restore did not finish. Some of the backup may be in place: check your cycles, schedule and options, or restore again.</string>

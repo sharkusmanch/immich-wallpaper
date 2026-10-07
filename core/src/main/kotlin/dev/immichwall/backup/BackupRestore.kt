@@ -46,4 +46,13 @@ object BackupRestore {
      */
     fun startsSyncing(configured: Boolean, applied: Boolean?, syncsStopped: Boolean): Boolean =
         configured && (applied != false || syncsStopped)
+
+    /**
+     * Whether first-run setup goes from the server screen straight to the options step:
+     * when cycles are already stored (a backup was restored, on either screen that offers
+     * it, or a first cycle was built before going back), there is no photo source left to
+     * choose. From stored state, so it holds after the app was closed mid-setup. Never once
+     * setup is finished ([configured]).
+     */
+    fun setupSkipsSourceStep(configured: Boolean, cycleCount: Int): Boolean = !configured && cycleCount > 0
 }

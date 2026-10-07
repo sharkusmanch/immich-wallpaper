@@ -11,6 +11,7 @@ import androidx.core.view.children
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.ViewModelProvider
 import dev.immichwall.R
+import dev.immichwall.backup.ServerUse
 import dev.immichwall.settings.SettingsRepository
 import dev.immichwall.ui.MainActivity
 import dev.immichwall.ui.SettingsRestoreFlow
@@ -32,7 +33,7 @@ class SourcePickerFragment : Fragment(R.layout.fragment_source_picker) {
      */
     private val restore = SettingsRestoreFlow(
         this,
-        offerServer = false,
+        serverUse = ServerUse.IGNORED,
         onBusy = { busy ->
             // Choosing a source while a backup is being applied would add a cycle to a
             // list that is being replaced.
