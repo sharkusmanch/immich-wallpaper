@@ -48,6 +48,9 @@ class ServerSetupFragment : Fragment(R.layout.fragment_server_setup) {
     private val vm: WizardViewModel
         get() = ViewModelProvider(requireActivity())[WizardViewModel::class.java]
 
+    /** True from the view's creation until its saved state is back in the fields. */
+    private var settingUpFields = false
+
     /** A backup is being applied: nothing here may store or test the fields in between. */
     private var restoring = false
 
@@ -88,29 +91,14 @@ class ServerSetupFragment : Fragment(R.layout.fragment_server_setup) {
             )
         }
 
-        // Reset to Idle only when the (normalized) values actually differ from what
-        // was tested: Android's view-state restoration re-sets identical text after
-        // rotation, and that must not wipe a green result.
-        val invalidate: (String) -> Unit = {
-            val url = normalizeUrl(urlField.text?.toString().orEmpty())
-            val away = normalizeUrl(awayField.text?.toString().orEmpty())
-            val key = keyField.text?.toString()?.trim().orEmpty()
-            if (url != vm.testedUrl || away != vm.testedAwayUrl || key != vm.testedKey) {
-                vm.continueWhenTestPasses = false
-                if (vm.serverTest.value != WizardViewModel.ServerTestState.Idle) {
-                    vm.serverTest.value = WizardViewModel.ServerTestState.Idle
-                }
-            }
-        }
-        urlField.afterTextChanged(invalidate)
-        awayField.afterTextChanged(invalidate)
-        keyField.afterTextChanged(invalidate)
-        // The prefill above ran before the watchers were attached, so a fresh view
-        // must run one invalidate pass itself: otherwise a green result surviving in
-        // the ViewModel (e.g. after back-and-forth) would authorize prefilled values
-        // that were never tested. Not on rotation — the fields are still empty here
-        // (view-state restoration happens later) and would wipe a legitimate result.
-        if (savedInstanceState == null) invalidate("")
+        // Real edits only. Until onViewStateRestored the text changes are Android putting
+        // saved text back, one field at a time: judging the first against a test of all
+        // three would wipe a green result on every rotation.
+        settingUpFields = true
+        val edited: (String) -> Unit = { if (!settingUpFields) resetTestIfEdited(view) }
+        urlField.afterTextChanged(edited)
+        awayField.afterTextChanged(edited)
+        keyField.afterTextChanged(edited)
 
         viewLifecycleOwner.lifecycleScope.launch {
             viewLifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
@@ -153,6 +141,31 @@ class ServerSetupFragment : Fragment(R.layout.fragment_server_setup) {
         if (!settings.isConfigured) {
             view.findViewById<View>(R.id.server_restore_section).visibility = View.VISIBLE
             view.findViewById<Button>(R.id.server_restore).setOnClickListener { restore.start() }
+        }
+    }
+
+    override fun onViewStateRestored(savedInstanceState: Bundle?) {
+        super.onViewStateRestored(savedInstanceState)
+        settingUpFields = false
+        // One pass over the fields as they now are, prefilled or restored: a green result
+        // surviving in the ViewModel (e.g. after back-and-forth) must not authorize values
+        // that were never tested.
+        view?.let(::resetTestIfEdited)
+    }
+
+    /**
+     * Back to Idle only when the (normalized) values actually differ from what was tested:
+     * setting identical text must not wipe a green result.
+     */
+    private fun resetTestIfEdited(view: View) {
+        val url = normalizeUrl(fieldText(view, R.id.server_url))
+        val away = normalizeUrl(fieldText(view, R.id.server_away))
+        val key = fieldText(view, R.id.server_key).trim()
+        if (url != vm.testedUrl || away != vm.testedAwayUrl || key != vm.testedKey) {
+            vm.continueWhenTestPasses = false
+            if (vm.serverTest.value != WizardViewModel.ServerTestState.Idle) {
+                vm.serverTest.value = WizardViewModel.ServerTestState.Idle
+            }
         }
     }
 
