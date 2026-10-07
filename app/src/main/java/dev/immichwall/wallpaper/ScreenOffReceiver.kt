@@ -25,7 +25,7 @@ class ScreenOffReceiver : BroadcastReceiver() {
             }
             Intent.ACTION_SCREEN_ON -> {
                 Logg.d(TAG, "ACTION_SCREEN_ON")
-                RotationController.onScreenOn()
+                RotationController.onScreenOn(ctx)
             }
         }
     }

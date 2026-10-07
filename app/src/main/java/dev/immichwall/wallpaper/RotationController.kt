@@ -68,6 +68,9 @@ object RotationController {
 
     // ---- State below is confined to the "wallpaper-render" thread. ----
     private var advancedThisOffCycle = false
+
+    /** The date the schedule was last evaluated on this thread; null = not since process start. */
+    private var lastScheduleDate: java.time.LocalDate? = null
     private var pendingSettle: Runnable? = null
     private var wakeLock: PowerManager.WakeLock? = null
 
@@ -144,6 +147,29 @@ object RotationController {
     }
 
     /**
+     * The active cycle changed while the screen may be on (manual pick, schedule edit).
+     * Shows that cycle's freshest cached photo now, with a crossfade. A no-op when nothing
+     * is cached for it yet — the sync's end-of-run jump covers that case.
+     */
+    fun onActiveCycleChanged(ctx: Context) {
+        val app = ctx.applicationContext
+        renderHandler().post {
+            guarded("onActiveCycleChanged") {
+                if (alignCursorWithActiveCycle(app)) loadFromCursor(app, animate = true)
+            }
+        }
+    }
+
+    /** The cache was emptied: drop the bitmap so engines draw the placeholder until a sync refills. */
+    fun onCacheCleared() {
+        renderHandler().post {
+            fadeFrom = null
+            current = null
+            notifyRedraw()
+        }
+    }
+
+    /**
      * Bounded synchronous wait for the first decode. Called from the engine's
      * onSurfaceRedrawNeeded contract path so the first frame ever presented on a fresh
      * surface is the photo, not a placeholder that pops to the photo a beat later.
@@ -190,8 +216,14 @@ object RotationController {
         renderHandler().post { scheduleAdvance(app) }
     }
 
-    /** Cancels a pending settle, releases the wakelock and re-arms the per-off-cycle latch. */
-    fun onScreenOn() {
+    /**
+     * Cancels a pending settle, releases the wakelock and re-arms the per-off-cycle latch.
+     * Then checks the cycle: the photo this wake reveals was chosen at the last screen-off,
+     * which may have been yesterday. On the first wake of a boundary day it crossfades to
+     * the new cycle about a second in; on every other wake this is a no-op.
+     */
+    fun onScreenOn(ctx: Context) {
+        val app = ctx.applicationContext
         val h = renderHandler()
         // Front of queue so a due-but-not-yet-run settle is removed before it can execute.
         h.postAtFrontOfQueue {
@@ -199,6 +231,15 @@ object RotationController {
             pendingSettle = null
             releaseWakeLock()
             advancedThisOffCycle = false
+        }
+        h.post {
+            guarded("onScreenOn") {
+                // Settings and cache live in credential-encrypted storage.
+                val um = app.getSystemService(UserManager::class.java)
+                if ((um == null || um.isUserUnlocked) && alignCursorWithActiveCycle(app)) {
+                    loadFromCursor(app, animate = true)
+                }
+            }
         }
     }
 
@@ -260,9 +301,42 @@ object RotationController {
         renderHandler().postDelayed(settle, SETTLE_DELAY_MS)
     }
 
+    /**
+     * Render thread; storage must be unlocked. Makes the cursor point into the active cycle:
+     * runs the schedule when the calendar day has changed since the last look (once a day is
+     * enough here — edits and manual picks apply themselves through the UI, and every sync
+     * applies it too), then, if the photo under the cursor belongs to another cycle and the
+     * active one has photos, moves the cursor to its freshest. True when the cursor moved;
+     * the caller reloads. Cheap when nothing is due: a few settings reads and one hash.
+     */
+    private fun alignCursorWithActiveCycle(ctx: Context): Boolean {
+        val settings = dev.immichwall.settings.SettingsRepository.get(ctx)
+        val today = dev.immichwall.schedule.ScheduleApplier.today(settings)
+        if (today != lastScheduleDate) {
+            if (dev.immichwall.schedule.ScheduleApplier.applyIfDue(ctx)) {
+                // Tops the new cycle up; its prefetched photos are already on disk.
+                dev.immichwall.sync.SyncScheduler.kickInitialFill(ctx)
+            }
+            // Only once it worked: a throw above must not write the day off.
+            lastScheduleDate = today
+        }
+        val key = dev.immichwall.source.CycleKeys.activeKey(settings) ?: return false
+        val cache = PhotoCacheManager.get(ctx)
+        val underCursor = cache.currentEntry() ?: return false
+        if (underCursor.sourceKey == key) return false
+        return cache.jumpToNewest(key) != null
+    }
+
     private fun performAdvance(ctx: Context) {
         // The advance for this off-cycle is now considered spent, whatever the outcome.
         advancedThisOffCycle = true
+        // Cycle first. When the photo on screen belongs to a cycle that is no longer the
+        // active one (the date rolled over, or a sync switched cycles and could not reach
+        // the server), show the active cycle now, whatever the rotation cadence says.
+        if (alignCursorWithActiveCycle(ctx)) {
+            loadFromCursor(ctx)
+            return
+        }
         // Rotation cadence: with a minimum interval set, wakes inside the window reveal
         // the same photo again — the change waits for the first screen-off after it.
         val settings = dev.immichwall.settings.SettingsRepository.get(ctx)
@@ -329,6 +403,8 @@ object RotationController {
             return
         }
         val cache = PhotoCacheManager.get(ctx)
+        // A load must never bring back a photo of a cycle that is no longer active.
+        alignCursorWithActiveCycle(ctx)
         var attempts = 0
         while (attempts < MAX_DECODE_ATTEMPTS) {
             attempts++
