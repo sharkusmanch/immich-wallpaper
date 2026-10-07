@@ -7,6 +7,8 @@ import android.os.SystemClock
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
 import dev.immichwall.api.ApiJson
+import dev.immichwall.schedule.Schedule
+import dev.immichwall.schedule.ScheduleOverride
 import dev.immichwall.source.SavedCycle
 import dev.immichwall.source.SourceSpec
 import dev.immichwall.util.Logg
@@ -226,10 +228,10 @@ class SettingsRepository private constructor(ctx: Context) {
         }
     }
 
-    /** Removes a cycle; refuses to remove the active one. */
+    /** Removes a cycle; refuses to remove the active one or one the schedule refers to. */
     fun deleteCycle(cycleId: String): Boolean {
         synchronized(cyclesLock) {
-            if (cycleId == activeCycleId) return false
+            if (cycleId == activeCycleId || isCycleScheduled(cycleId)) return false
             val cycles = savedCyclesLocked()
             val victim = cycles.firstOrNull { it.id == cycleId } ?: return false
             Logg.d(TAG, "cycles: delete '${victim.name}'")
@@ -290,6 +292,52 @@ class SettingsRepository private constructor(ctx: Context) {
     var lastGoodBaseUrl: String
         get() = plain.getString(KEY_LAST_GOOD_BASE_URL, "").orEmpty()
         set(value) { plain.edit().putString(KEY_LAST_GOOD_BASE_URL, value).commit() }
+
+    /**
+     * The date-of-year schedule. Undecodable JSON reads as "off and empty" rather than
+     * throwing: this is read on the wake path, which must never crash the wallpaper.
+     */
+    var schedule: Schedule
+        get() {
+            val raw = plain.getString(KEY_SCHEDULE, null) ?: return Schedule()
+            return try {
+                ApiJson.json.decodeFromString(Schedule.serializer(), raw)
+            } catch (t: Throwable) {
+                Logg.e(TAG, "schedule undecodable; treating as off", t)
+                Schedule()
+            }
+        }
+        set(value) {
+            plain.edit().putString(KEY_SCHEDULE, ApiJson.json.encodeToString(Schedule.serializer(), value)).commit()
+        }
+
+    /** A manual cycle pick that is holding against the schedule; null = none. */
+    var scheduleOverride: ScheduleOverride?
+        get() {
+            val raw = plain.getString(KEY_SCHEDULE_OVERRIDE, null) ?: return null
+            return try {
+                ApiJson.json.decodeFromString(ScheduleOverride.serializer(), raw)
+            } catch (t: Throwable) {
+                null
+            }
+        }
+        set(value) {
+            val editor = plain.edit()
+            if (value == null) editor.remove(KEY_SCHEDULE_OVERRIDE)
+            else editor.putString(KEY_SCHEDULE_OVERRIDE, ApiJson.json.encodeToString(ScheduleOverride.serializer(), value))
+            editor.commit()
+        }
+
+    /** Debug builds only: ISO date the schedule pretends it is; "" = the real date. */
+    var debugToday: String
+        get() = plain.getString(KEY_DEBUG_TODAY, "").orEmpty()
+        set(value) { plain.edit().putString(KEY_DEBUG_TODAY, value).commit() }
+
+    /** True when the schedule refers to [cycleId] (as an entry's cycle or as the default). */
+    fun isCycleScheduled(cycleId: String): Boolean {
+        val s = schedule
+        return s.defaultCycleId == cycleId || s.entries.any { it.cycleId == cycleId }
+    }
 
     /**
      * Opens the encrypted store, or returns null when it is temporarily unusable.
@@ -518,6 +566,9 @@ class SettingsRepository private constructor(ctx: Context) {
         private const val KEY_CROP_WIDTH = "cropWidth"
         private const val KEY_CROP_HEIGHT = "cropHeight"
         private const val KEY_LAST_GOOD_BASE_URL = "lastGoodBaseUrl"
+        private const val KEY_SCHEDULE = "schedule"
+        private const val KEY_SCHEDULE_OVERRIDE = "scheduleOverride"
+        private const val KEY_DEBUG_TODAY = "debugToday"
 
         const val DEFAULT_TARGET_CACHE_COUNT = 150
         const val DEFAULT_REFRESH_INTERVAL_HOURS = 6
