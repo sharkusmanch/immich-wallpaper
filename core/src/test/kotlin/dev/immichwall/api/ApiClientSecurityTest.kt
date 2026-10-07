@@ -89,6 +89,18 @@ class ApiClientSecurityTest {
         assertTrue(dir.listFiles()!!.isEmpty())
     }
 
+    @Test fun `oversized download with no declared length is cut off mid-stream`() {
+        repeat(3) { server.enqueue(MockResponse().setChunkedBody(Buffer().write(ByteArray(2048)), 512)) }
+        val dest = File(dir, "chunked.raw")
+        val e = assertFailsWith<ApiException> {
+            client(ImmichApiClient.Limits(maxDownloadBytes = 1024)).downloadAssetImage(assetId, dest)
+        }
+        assertEquals(413, e.code)
+        assertEquals(3, server.requestCount)
+        assertFalse(dest.exists())
+        assertTrue(dir.listFiles()!!.isEmpty())
+    }
+
     @Test fun `oversized original falls back to a smaller rung`() {
         server.enqueue(MockResponse().setBody(Buffer().write(ByteArray(2048))))
         server.enqueue(MockResponse().setBody(Buffer().write(ByteArray(100))))
