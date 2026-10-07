@@ -9,6 +9,7 @@ import androidx.fragment.app.Fragment
 import com.google.android.material.slider.Slider
 import com.google.android.material.switchmaterial.SwitchMaterial
 import dev.immichwall.R
+import dev.immichwall.settings.OptionChoices
 import dev.immichwall.settings.SettingsRepository
 import dev.immichwall.sync.SyncScheduler
 import dev.immichwall.ui.MainActivity
@@ -38,12 +39,17 @@ class OptionsFragment : Fragment(R.layout.fragment_options) {
             cacheValue.text = getString(R.string.options_cache_label, count, mb)
         }
 
-        // Snap to the slider's 10-step grid so setValue never rejects it.
-        val initial = (settings.targetCacheCount.coerceIn(50, 300) / 10) * 10
+        // Snap to the slider's step grid so setValue never rejects it. The slider's
+        // from/to/step in the layout mirror OptionChoices.CACHE_COUNT_*.
+        val initial = settings.targetCacheCount
+            .coerceIn(OptionChoices.CACHE_COUNT_MIN, OptionChoices.CACHE_COUNT_MAX)
+            .let { it / OptionChoices.CACHE_COUNT_STEP * OptionChoices.CACHE_COUNT_STEP }
         cacheSlider.value = initial.toFloat()
         updateCacheLabel(initial)
         cacheSlider.addOnChangeListener { _, value, _ -> updateCacheLabel(value.toInt()) }
 
+        // The radio ids below must cover OptionChoices.ROTATION_MINUTES and REFRESH_HOURS
+        // (restoring a backup coerces to those lists).
         rotationGroup.check(
             when (settings.rotationMinIntervalMinutes) {
                 5 -> R.id.options_rotation_5m

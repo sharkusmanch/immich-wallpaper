@@ -19,8 +19,11 @@ import dev.immichwall.source.SourceSpec
 import dev.immichwall.util.Logg
 import javax.crypto.AEADBadTagException
 
-/** What [SettingsRepository.applyBackup] did beyond the parts that always apply. */
-data class BackupApplied(val serverApplied: Boolean)
+/**
+ * Outcome of [SettingsRepository.applyBackup]. [applied] false = the backup held no cycles
+ * and NOTHING was changed; [serverApplied] is then false too.
+ */
+data class BackupApplied(val applied: Boolean, val serverApplied: Boolean)
 
 /**
  * Process-wide settings store. The API key lives in EncryptedSharedPreferences;
@@ -141,7 +144,7 @@ class SettingsRepository private constructor(ctx: Context) {
 
     var targetCacheCount: Int
         get() = plain.getInt(KEY_TARGET_CACHE_COUNT, DEFAULT_TARGET_CACHE_COUNT)
-        set(value) { plain.edit().putInt(KEY_TARGET_CACHE_COUNT, value.coerceIn(50, 300)).commit() }
+        set(value) { plain.edit().putInt(KEY_TARGET_CACHE_COUNT, value.coerceIn(OptionChoices.CACHE_COUNT_MIN, OptionChoices.CACHE_COUNT_MAX)).commit() }
 
     /**
      * How many photos the source of the cycle with [cycleKey] held at its last good sync,
@@ -347,42 +350,49 @@ class SettingsRepository private constructor(ctx: Context) {
      * Replaces the cycles, active cycle, schedule and (when present) options with [backup]'s,
      * clears the manual schedule override, and applies its server block only when
      * [applyServer] and [BackupRestore.serverToApply] accepts it. Does not kick syncs.
+     * A backup with no cycles applies nothing ([BackupApplied.applied] false).
      *
-     * Lock order: [cyclesLock] only for the cycles/active/mirrored-spec group (a leaf of the
-     * existing order, like [activateCycle]); the secure store (its own lock) is touched
-     * after that block is released, so the two locks are never nested here.
+     * Cycles, active id, mirrored source, schedule and the override removal go out in ONE
+     * plain-prefs commit under [cyclesLock], so schedule readers (which take the lock via
+     * [cyclesConsistentWithActiveSpec]) never see new cycles with the old schedule. The
+     * secure store (its own lock) is written after that block exits, so the locks are never
+     * nested here; the key goes first so a reader never sees the new address with the old key.
      */
     fun applyBackup(backup: Backup, applyServer: Boolean): BackupApplied {
-        synchronized(cyclesLock) {
-            // An empty cycle list would leave the sync pipeline with no source: keep what we have.
-            val active = backup.cycles.firstOrNull { it.id == backup.activeCycleId }
-                ?: backup.cycles.firstOrNull()
-            if (active != null) {
-                persistCyclesLocked(backup.cycles)
-                sourceSpec = active.spec
-                activeCycleId = active.id
-            }
-        }
-        schedule = backup.schedule
-        scheduleOverride = null
-        backup.options?.let {
-            val o = BackupRestore.sanitizeOptions(it)
-            targetCacheCount = o.targetCacheCount
-            refreshIntervalHours = o.refreshIntervalHours
-            rotationMinIntervalMinutes = o.rotationMinIntervalMinutes
-            qualityFilterEnabled = o.qualityFilterEnabled
-            syncOverCellular = o.syncOverCellular
-            deriveThemeFromPhoto = o.deriveThemeFromPhoto
-        }
+        val active = backup.cycles.firstOrNull { it.id == backup.activeCycleId }
+            ?: backup.cycles.firstOrNull()
+            ?: return BackupApplied(applied = false, serverApplied = false)
         val server = if (applyServer) backup.server?.let(BackupRestore::serverToApply) else null
+        val options = backup.options?.let(BackupRestore::sanitizeOptions)
+        val json = ApiJson.json
+        synchronized(cyclesLock) {
+            val editor = plain.edit()
+                .putString(KEY_SAVED_CYCLES, json.encodeToString(
+                    kotlinx.serialization.builtins.ListSerializer(SavedCycle.serializer()), backup.cycles))
+                .putString(KEY_SOURCE_SPEC, json.encodeToString(SourceSpec.serializer(), active.spec))
+                .putString(KEY_ACTIVE_CYCLE_ID, active.id)
+                .putString(KEY_SCHEDULE, json.encodeToString(Schedule.serializer(), backup.schedule))
+                .remove(KEY_SCHEDULE_OVERRIDE)
+            if (options != null) {
+                editor.putInt(KEY_TARGET_CACHE_COUNT, options.targetCacheCount)
+                    .putInt(KEY_REFRESH_INTERVAL_HOURS, options.refreshIntervalHours)
+                    .putInt(KEY_ROTATION_MIN_INTERVAL, options.rotationMinIntervalMinutes)
+                    .putBoolean(KEY_QUALITY_FILTER, options.qualityFilterEnabled)
+                    .putBoolean(KEY_SYNC_OVER_CELLULAR, options.syncOverCellular)
+                    .putBoolean(KEY_DERIVE_THEME, options.deriveThemeFromPhoto)
+            }
+            editor.commit()
+        }
         if (server != null) {
             apiKey = server.apiKey
-            serverUrl = server.serverUrl
-            awayUrl = server.awayUrl
-            lastGoodBaseUrl = ""
+            plain.edit()
+                .putString(KEY_SERVER_URL, server.serverUrl)
+                .putString(KEY_AWAY_URL, server.awayUrl)
+                .putString(KEY_LAST_GOOD_BASE_URL, "")
+                .commit()
         }
         Logg.d(TAG, "backup applied: ${backup.cycleCount} cycles, serverApplied=${server != null}")
-        return BackupApplied(serverApplied = server != null)
+        return BackupApplied(applied = true, serverApplied = server != null)
     }
 
     var isConfigured: Boolean
@@ -686,7 +696,7 @@ class SettingsRepository private constructor(ctx: Context) {
         private const val KEY_SOURCE_SIZE_PREFIX = "sourceSize|"
 
         const val DEFAULT_TARGET_CACHE_COUNT = 150
-        const val DEFAULT_REFRESH_INTERVAL_HOURS = 6
+        const val DEFAULT_REFRESH_INTERVAL_HOURS = OptionChoices.DEFAULT_REFRESH_HOURS
 
         @Volatile
         private var instance: SettingsRepository? = null
