@@ -112,8 +112,7 @@ class StatusFragment : Fragment(R.layout.fragment_status) {
 
         val readyCount = runCatching { PhotoCacheManager.get(ctx).readyCount() }.getOrDefault(0)
         val cacheMb = runCatching {
-            val bytes = PhotoCacheManager.get(ctx).readyDir()
-                .listFiles()?.sumOf { it.length() } ?: 0L
+            val bytes = PhotoCacheManager.get(ctx).readyBytes()
             (bytes / (1024L * 1024L)).toInt()
         }.getOrDefault(0)
         // ctx (application context) rather than fragment getString: this runs on

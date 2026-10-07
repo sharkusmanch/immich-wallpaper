@@ -23,11 +23,12 @@ class InitialFillWorker(ctx: Context, params: WorkerParameters) : CoroutineWorke
 
     override suspend fun doWork(): Result = withContext(Dispatchers.IO) {
         try {
-            val summary = RefreshEngine(applicationContext).refresh(INITIAL_PHOTO_COUNT)
+            val summary = RefreshEngine(applicationContext).refresh(INITIAL_PHOTO_COUNT) { isStopped }
             Logg.d(TAG, "initial fill: $summary")
             when (summary) {
                 RefreshEngine.SUMMARY_OFFLINE -> Result.retry()
-                RefreshEngine.SUMMARY_NO_SOURCE -> Result.success()
+                // A stopped run must not chain a top-up; whatever replaced it will.
+                RefreshEngine.SUMMARY_NO_SOURCE, RefreshEngine.SUMMARY_STOPPED -> Result.success()
                 else -> {
                     SyncScheduler.enqueueTopUp(applicationContext)
                     Result.success()

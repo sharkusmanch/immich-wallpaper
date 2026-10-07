@@ -276,9 +276,11 @@ object RotationController {
             }
         }
         val cache = PhotoCacheManager.get(ctx)
+        // Only the active cycle's photos are eligible (all of them while it has none cached).
+        val activeKey = dev.immichwall.source.CycleKeys.activeKey(settings).orEmpty()
         // Peek-then-commit: nothing (cursor, shown-marks) moves until the new photo is
         // decoded AND the screen is still off, so an aborted advance leaves no trace.
-        var entry = cache.peekNextShown()
+        var entry = cache.peekNextShown(activeKey)
         var decoded: Bitmap? = null
         var attempts = 0
         while (entry != null && attempts < MAX_DECODE_ATTEMPTS) {
@@ -293,8 +295,8 @@ object RotationController {
             }
             if (decoded != null) break
             Logg.w(TAG, "corrupt ready file for ${entry.assetId}; removing and retrying")
-            cache.removeEntry(entry.assetId)
-            entry = cache.peekNextShown()
+            cache.removeEntry(entry)
+            entry = cache.peekNextShown(activeKey)
         }
         val shown = entry
         if (decoded == null || shown == null) {
@@ -309,7 +311,7 @@ object RotationController {
             Logg.d(TAG, "screen became interactive during decode; suppressing swap")
             return
         }
-        cache.commitShown(shown.assetId)
+        cache.commitShown(shown)
         settings.lastAdvanceAt = System.currentTimeMillis()
         swapAndRedraw(decoded)
         Logg.d(TAG, "advanced to ${shown.assetId}")
@@ -349,7 +351,7 @@ object RotationController {
                 return
             }
             Logg.w(TAG, "cursor entry ${entry.assetId} not decodable; removing")
-            cache.removeEntry(entry.assetId)
+            cache.removeEntry(entry)
         }
         Logg.w(TAG, "loadFromCursor gave up after $attempts attempts")
     }

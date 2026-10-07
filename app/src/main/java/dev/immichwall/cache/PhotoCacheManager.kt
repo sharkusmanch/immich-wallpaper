@@ -17,7 +17,7 @@ import kotlin.math.max
  * manifest.json        atomic tmp+rename+fsync; entries + sync metadata
  * cursor.txt           single int rotation index; the ONLY file touched per screen-off advance
  * staging/             downloads + crops in progress
- * ready/<assetId>.jpg  finished, verified, panel-sized wallpapers
+ * ready/<cycle>/<assetId>.jpg  finished, verified wallpapers, one directory per cycle key
  * ```
  *
  * Every public method is safe to call from any thread: all state (manifest + cursor) is
@@ -102,71 +102,66 @@ class PhotoCacheManager private constructor(private val ctx: Context) {
 
     fun readyFile(entry: CacheEntry): File = File(readyRoot, entry.fileName)
 
+    /** Bytes used by finished wallpapers, across every cycle's subdirectory. */
+    fun readyBytes(): Long = readyRoot.walkTopDown().filter { it.isFile }.sumOf { it.length() }
+
     /** Entry at the rotation cursor, or null when the cache is empty. */
     fun currentEntry(): CacheEntry? = synchronized(lock) {
         manifestState.entries.getOrNull(cursor)
     }
 
     /**
-     * The entry the next advance SHOULD show — least-recently-shown first (never-shown
-     * entries win, oldest-added among them), excluding the entry currently on screen.
+     * The entry the next advance SHOULD show: least-recently-shown among the active
+     * cycle's photos, excluding the one on screen (see [CachePolicy.nextToShow]).
      * Pure read: nothing moves until [commitShown]. Peek-then-commit lets the caller
      * decode and re-check screen state first, so an aborted advance leaves no trace.
      */
-    fun peekNextShown(): CacheEntry? = synchronized(lock) {
-        val entries = manifestState.entries
-        if (entries.isEmpty()) return null
-        if (entries.size == 1) return entries[0].takeIf { cursor != 0 } // sole entry already showing → nothing new
-        val currentId = entries.getOrNull(cursor)?.assetId
-        entries.asSequence()
-            .filter { it.assetId != currentId }
-            .minWithOrNull(compareBy({ it.lastShownAt }, { it.shownCount }, { it.addedAt }))
+    fun peekNextShown(activeKey: String): CacheEntry? = synchronized(lock) {
+        CachePolicy.nextToShow(manifestState.entries, manifestState.entries.getOrNull(cursor), activeKey)
     }
 
     /**
-     * Marks [assetId] as shown NOW and points the cursor at it. Persists only
+     * Marks [entry] as shown NOW and points the cursor at it. Persists only
      * `cursor.txt` plus an append to `shown.log` — the manifest is never rewritten on
      * the wake path; the next manifest persist folds the marks in.
      */
-    fun commitShown(assetId: String) {
+    fun commitShown(entry: CacheEntry) {
         synchronized(lock) {
-            val idx = manifestState.entries.indexOfFirst { it.assetId == assetId }
+            val idx = indexOfLocked(entry)
             if (idx < 0) return
             val now = System.currentTimeMillis()
-            markShownLocked(assetId, now)
+            markShownLocked(entry, now)
             cursor = idx
             persistCursorBestEffortLocked()
-            appendShownLogLocked(assetId, now)
+            appendShownLogLocked(entry, now)
         }
     }
 
     /**
-     * Moves the cursor to the most recently added entry — used after a source change so
-     * the visible wallpaper can jump (crossfade) to the new source's freshest photo
-     * instead of waiting out the rotation through leftover old-source entries.
+     * Moves the cursor to the active cycle's most recently added entry — used after a
+     * cycle change so the visible wallpaper can jump (crossfade) to the new set's
+     * freshest photo. Null when the active cycle has nothing cached.
      */
-    fun jumpToNewest(): CacheEntry? = synchronized(lock) {
-        val entries = manifestState.entries
-        if (entries.isEmpty()) return null
-        var newest = 0
-        entries.forEachIndexed { i, e -> if (e.addedAt > entries[newest].addedAt) newest = i }
-        val target = entries[newest]
-        if (newest != cursor) {
+    fun jumpToNewest(activeKey: String): CacheEntry? = synchronized(lock) {
+        val target = CachePolicy.newest(manifestState.entries, activeKey) ?: return null
+        val idx = indexOfLocked(target)
+        if (idx != cursor) {
             // The jump target is about to be displayed — mark it shown so the LRU
             // rotation doesn't immediately swap away from it at the next screen-off.
             val now = System.currentTimeMillis()
-            markShownLocked(target.assetId, now)
-            cursor = newest
+            markShownLocked(target, now)
+            cursor = idx
             persistCursorBestEffortLocked()
-            appendShownLogLocked(target.assetId, now)
+            appendShownLogLocked(target, now)
         }
         target
     }
 
     /**
      * Ingest gate: verification re-decode of [staged] → fsync → atomic rename into
-     * `ready/<assetId>.jpg` → manifest append. Corrupt files die here, not at wake.
-     * On failure the staged file is deleted and false is returned.
+     * `ready/<cycle>/<assetId>.jpg` → manifest append. Corrupt files die here, not at wake.
+     * On failure the staged file is deleted and false is returned. An entry is identified
+     * by cycle key AND asset id, so the same photo can be cached for two cycles.
      */
     fun promote(entry: CacheEntry, staged: File): Boolean {
         if (!staged.isFile) {
@@ -188,10 +183,10 @@ class PhotoCacheManager private constructor(private val ctx: Context) {
             return false
         }
         synchronized(lock) {
-            readyRoot.mkdirs()
-            val destName = "${entry.assetId}.jpg"
+            val destName = CachePolicy.readyFileName(entry.sourceKey, entry.assetId)
             val dest = File(readyRoot, destName)
-            val currentAssetId = manifestState.entries.getOrNull(cursor)?.assetId
+            dest.parentFile?.mkdirs()
+            val onScreen = manifestState.entries.getOrNull(cursor)
             // rename() replaces an existing target atomically, so a re-promoted asset never
             // has a moment without a ready file; the delete+retry mirrors writeAtomicLocked.
             if (!staged.renameTo(dest)) {
@@ -203,8 +198,12 @@ class PhotoCacheManager private constructor(private val ctx: Context) {
                 }
             }
             val normalized = if (entry.fileName == destName) entry else entry.copy(fileName = destName)
+            // A pre-partition entry of the same identity lives under a flat file name.
+            manifestState.entries.firstOrNull { CachePolicy.sameEntry(it, normalized) }
+                ?.takeIf { it.fileName != destName }
+                ?.let { File(readyRoot, it.fileName).delete() }
             manifestState = manifestState.copy(
-                entries = manifestState.entries.filter { it.assetId != normalized.assetId } + normalized
+                entries = manifestState.entries.filter { !CachePolicy.sameEntry(it, normalized) } + normalized
             )
             try {
                 persistManifestLocked()
@@ -213,9 +212,9 @@ class PhotoCacheManager private constructor(private val ctx: Context) {
                 // (or startup salvage) reconciles disk.
                 Logg.e(TAG, "promote: manifest persist failed for ${entry.assetId}", e)
             }
-            // Re-promoting an existing asset moves it to the end of the list; keep the
+            // Re-promoting an existing entry moves it to the end of the list; keep the
             // cursor pointing at the entry it was on so the on-screen photo never shifts.
-            val idx = manifestState.entries.indexOfFirst { it.assetId == currentAssetId }
+            val idx = if (onScreen == null) -1 else indexOfLocked(onScreen)
             if (idx >= 0) {
                 if (idx != cursor) {
                     cursor = idx
@@ -228,78 +227,58 @@ class PhotoCacheManager private constructor(private val ctx: Context) {
         }
     }
 
-    /** Removes the entry (if present), deletes its ready file, and clamps the cursor. */
-    fun removeEntry(assetId: String) {
+    /** Removes [entry] (if present) and deletes its ready file. Never throws: it runs on the wake path. */
+    fun removeEntry(entry: CacheEntry) {
+        synchronized(lock) { removeEntriesLocked(listOf(entry)) }
+    }
+
+    /**
+     * Evicts cycle [sourceKey] down to `max(HARD_FLOOR, target)` photos, most-shown first
+     * (then oldest): a photo everyone has seen ten times yields its slot before one that
+     * never got its turn. Other cycles are untouched.
+     */
+    fun evictToTarget(sourceKey: String, target: Int) {
         synchronized(lock) {
-            val entries = manifestState.entries
-            val idx = entries.indexOfFirst { it.assetId == assetId }
-            if (idx < 0) return
-            File(readyRoot, entries[idx].fileName).delete()
-            val remaining = entries.toMutableList().also { it.removeAt(idx) }
-            manifestState = manifestState.copy(entries = remaining)
-            try {
-                persistManifestLocked()
-            } catch (e: IOException) {
-                // In-memory state is authoritative; the next successful manifest write
-                // (or startup salvage) reconciles disk. removeEntry runs on the WAKE
-                // path — it must never throw (a full disk would kill the process).
-                Logg.e(TAG, "removeEntry: manifest persist failed for $assetId", e)
-            }
-            cursor = when {
-                remaining.isEmpty() -> 0
-                idx < cursor -> cursor - 1          // keep pointing at the same entry
-                else -> cursor
-            }
-            if (cursor >= remaining.size || cursor < 0) cursor = 0
-            persistCursorBestEffortLocked()
+            val victims = CachePolicy.evictable(manifestState.entries, sourceKey, target, HARD_FLOOR)
+            if (victims.isEmpty()) return
+            Logg.d(TAG, "evictToTarget($target): evicting ${victims.size}")
+            removeEntriesLocked(victims)
         }
     }
 
     /**
-     * Evicts oldest-first (by [CacheEntry.addedAt]) down to `max(HARD_FLOOR, target)`.
-     * Deletes the evicted ready files and clamps the cursor, preferring to keep it on
-     * the entry it was pointing at.
+     * Deletes the photos of every cycle outside [retainedKeys] — but only once the active
+     * cycle has at least one photo (see [CachePolicy.purgeable]). Returns how many went.
      */
-    fun evictToTarget(target: Int) {
+    fun purgeOutside(retainedKeys: Set<String>, activeKey: String): Int {
         synchronized(lock) {
-            val keep = max(HARD_FLOOR, target)
-            val entries = manifestState.entries
-            if (entries.size <= keep) return
-            val currentAssetId = entries.getOrNull(cursor)?.assetId
-            // Most-shown-first (then oldest) keeps variety: a photo everyone has seen
-            // ten times yields its slot before one that never got its turn.
-            val evict = entries
-                .sortedWith(compareByDescending<CacheEntry> { it.shownCount }.thenBy { it.addedAt })
-                .take(entries.size - keep)
-                .mapTo(HashSet()) { it.assetId }
-            val remaining = ArrayList<CacheEntry>(keep)
-            for (entry in entries) {
-                if (entry.assetId in evict) {
-                    File(readyRoot, entry.fileName).delete()
-                } else {
-                    remaining.add(entry)
-                }
+            val victims = CachePolicy.purgeable(manifestState.entries, retainedKeys, activeKey)
+            if (victims.isNotEmpty()) {
+                Logg.d(TAG, "purging ${victims.size} photos of cycles no longer needed")
+                removeEntriesLocked(victims)
             }
-            Logg.d(TAG, "evictToTarget($target): evicted ${evict.size}, ${remaining.size} remain")
-            manifestState = manifestState.copy(entries = remaining)
-            persistManifestLocked()
-            val stillThere = remaining.indexOfFirst { it.assetId == currentAssetId }
-            cursor = when {
-                remaining.isEmpty() -> 0
-                stillThere >= 0 -> stillThere
-                else -> cursor.coerceIn(0, remaining.size - 1)
-            }
-            persistCursorBestEffortLocked()
+            return victims.size
         }
     }
 
-    fun containsAsset(assetId: String): Boolean = synchronized(lock) {
-        manifestState.entries.any { it.assetId == assetId }
+    /** Deletes every cached photo. The wallpaper shows its placeholder until a sync refills. */
+    fun clearAll() {
+        synchronized(lock) {
+            removeEntriesLocked(manifestState.entries)
+            readyRoot.walkBottomUp().forEach { if (it != readyRoot) it.delete() }
+        }
     }
 
-    /** Entry for [assetId], or null when not cached — used for per-entry staleness checks. */
-    fun entryFor(assetId: String): CacheEntry? = synchronized(lock) {
-        manifestState.entries.firstOrNull { it.assetId == assetId }
+    fun containsEntry(sourceKey: String, assetId: String): Boolean = entryFor(sourceKey, assetId) != null
+
+    /** Entry for [assetId] within cycle [sourceKey], or null when not cached. */
+    fun entryFor(sourceKey: String, assetId: String): CacheEntry? = synchronized(lock) {
+        manifestState.entries.firstOrNull { it.sourceKey == sourceKey && it.assetId == assetId }
+    }
+
+    /** How many photos are cached for cycle [sourceKey]. */
+    fun countFor(sourceKey: String): Int = synchronized(lock) {
+        manifestState.entries.count { it.sourceKey == sourceKey }
     }
 
     fun readyCount(): Int = synchronized(lock) { manifestState.entries.size }
@@ -356,17 +335,56 @@ class PhotoCacheManager private constructor(private val ctx: Context) {
     }
 
     /** In-memory shown-mark; callers persist via cursor+log (wake) or manifest (worker). */
-    private fun markShownLocked(assetId: String, now: Long) {
+    private fun markShownLocked(entry: CacheEntry, now: Long) {
         manifestState = manifestState.copy(
             entries = manifestState.entries.map {
-                if (it.assetId == assetId) it.copy(lastShownAt = now, shownCount = it.shownCount + 1) else it
+                if (CachePolicy.sameEntry(it, entry)) it.copy(lastShownAt = now, shownCount = it.shownCount + 1) else it
             }
         )
     }
 
-    private fun appendShownLogLocked(assetId: String, now: Long) {
+    private fun indexOfLocked(entry: CacheEntry): Int =
+        manifestState.entries.indexOfFirst { CachePolicy.sameEntry(it, entry) }
+
+    /**
+     * Drops [victims] from the manifest and deletes their files (and any cycle directory
+     * left empty), keeping the cursor on the entry it pointed at when that entry survives.
+     * Never throws: a failed manifest write is logged and the in-memory state stays
+     * authoritative until the next successful write or startup salvage.
+     */
+    private fun removeEntriesLocked(victims: List<CacheEntry>) {
+        if (victims.isEmpty()) return
+        val entries = manifestState.entries
+        val onScreen = entries.getOrNull(cursor)
+        val remaining = entries.filter { e -> victims.none { CachePolicy.sameEntry(it, e) } }
+        // Never delete a file a surviving entry still points at (two entries can only share
+        // one through a bug elsewhere, and losing the photo would be the worse outcome).
+        val stillReferenced = remaining.mapTo(HashSet()) { it.fileName }
+        for (victim in victims) {
+            if (victim.fileName in stillReferenced) continue
+            val file = File(readyRoot, victim.fileName)
+            file.delete()
+            file.parentFile?.takeIf { it != readyRoot && it.list()?.isEmpty() == true }?.delete()
+        }
+        manifestState = manifestState.copy(entries = remaining)
         try {
-            shownLogFile.appendText("$assetId $now\n", Charsets.US_ASCII)
+            persistManifestLocked()
+        } catch (e: IOException) {
+            Logg.e(TAG, "manifest persist failed after removing ${victims.size} entries", e)
+        }
+        val stillThere = if (onScreen == null) -1 else remaining.indexOfFirst { CachePolicy.sameEntry(it, onScreen) }
+        cursor = when {
+            remaining.isEmpty() -> 0
+            stillThere >= 0 -> stillThere
+            else -> cursor.coerceIn(0, remaining.size - 1)
+        }
+        persistCursorBestEffortLocked()
+    }
+
+    /** One line per mark: `assetId@sourceKey timestamp`. Neither part can contain a space. */
+    private fun appendShownLogLocked(entry: CacheEntry, now: Long) {
+        try {
+            shownLogFile.appendText("${entry.assetId}@${entry.sourceKey} $now\n", Charsets.US_ASCII)
         } catch (e: IOException) {
             // Best effort: losing a mark only means one photo may repeat a bit sooner.
             Logg.w(TAG, "shown.log append failed: ${e.message}")
@@ -387,8 +405,9 @@ class PhotoCacheManager private constructor(private val ctx: Context) {
                 marks[id] = Pair(maxOf(ts, prev?.first ?: 0L), (prev?.second ?: 0) + 1)
             }
             if (marks.isEmpty()) return m
+            // Lines written before the cache was partitioned carry the asset id alone.
             m.copy(entries = m.entries.map { e ->
-                marks[e.assetId]?.let { (ts, n) ->
+                (marks["${e.assetId}@${e.sourceKey}"] ?: marks[e.assetId])?.let { (ts, n) ->
                     e.copy(lastShownAt = maxOf(e.lastShownAt, ts), shownCount = e.shownCount + n)
                 } ?: e
             })
@@ -453,9 +472,16 @@ class PhotoCacheManager private constructor(private val ctx: Context) {
             }
         }
         val known = kept.mapTo(HashSet()) { it.fileName }
-        readyRoot.listFiles()?.forEach { file ->
-            if (file.isFile && file.name !in known) {
-                Logg.w(TAG, "salvage: deleting orphan ready file ${file.name}")
+        // Bottom-up so a cycle directory emptied of orphans is removed in the same pass.
+        readyRoot.walkBottomUp().forEach { file ->
+            if (file == readyRoot) return@forEach
+            if (file.isFile) {
+                val relative = file.relativeTo(readyRoot).invariantSeparatorsPath
+                if (relative !in known) {
+                    Logg.w(TAG, "salvage: deleting orphan ready file $relative")
+                    file.delete()
+                }
+            } else if (file.list()?.isEmpty() == true) {
                 file.delete()
             }
         }
