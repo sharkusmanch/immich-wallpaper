@@ -152,16 +152,26 @@ class SourcePreviewFragment : Fragment(R.layout.fragment_source_preview) {
 
         // Save only: the cycle lands in the list; the running cycle is untouched.
         saveButton.setOnClickListener {
+            // A second tap before the screen leaves would save the cycle again, as a new
+            // one. This path always leaves, so nothing has to enable the buttons again.
+            setActionsEnabled(false)
             persistAsCycle()
             Toast.makeText(requireContext(), R.string.preview_cycle_saved, Toast.LENGTH_SHORT).show()
             parentFragmentManager.popBackStack(null, FragmentManager.POP_BACK_STACK_INCLUSIVE)
         }
 
         confirmButton.setOnClickListener {
+            // Read once, so the guard here and the branch below cannot disagree.
+            val configured = settings.isConfigured
+            // As for Save: a second tap before the screen leaves would save the cycle again
+            // as a new one, and the configured path always leaves. The first-run path can
+            // stay on this screen (navigateTo may decline), so its buttons stay usable; it
+            // only ever saves a new cycle, whose twin has the same cache key.
+            if (configured) setActionsEnabled(false)
             val cycle = persistAsCycle()
             // A manual pick: with the schedule on it holds until the schedule next changes.
             dev.immichwall.schedule.ScheduleApplier.activateManually(requireContext().applicationContext, cycle.id)
-            if (settings.isConfigured) {
+            if (configured) {
                 // Activate flow: re-fill for the new source and go home; the wallpaper
                 // crossfades to the new cycle's first photo when it lands.
                 SyncScheduler.kickInitialFill(requireContext().applicationContext)

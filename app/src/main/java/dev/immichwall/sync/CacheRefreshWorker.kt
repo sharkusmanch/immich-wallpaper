@@ -77,7 +77,8 @@ class CacheRefreshWorker(ctx: Context, params: WorkerParameters) : CoroutineWork
  *
  * Per-asset API errors are skipped; transport [IOException] propagates so callers can retry —
  * already-promoted photos are kept (dedup makes the retry cheap). The names step alone lets
- * nothing out: a name list that cannot be read is skipped, not a failed run.
+ * no I/O failure out: a name list that cannot be read is skipped, not a failed run. Any
+ * other exception from it is a bug and propagates like one.
  */
 class RefreshEngine(private val ctx: Context) {
 

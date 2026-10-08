@@ -219,7 +219,8 @@ class SettingsRepository private constructor(ctx: Context) {
 
     /**
      * Saved wallpaper cycles. The ACTIVE cycle's spec is mirrored into [sourceSpec]
-     * (which the sync pipeline reads) by [activateCycle]; the rest are inert drafts.
+     * (which the sync pipeline reads) by [activateCycle], [saveCycle], [refreshCycleNames]
+     * and [applyBackup]; the rest are inert drafts.
      * Reading migrates a pre-cycles install: the existing [sourceSpec] becomes the
      * first (active) saved cycle.
      */
@@ -276,8 +277,9 @@ class SettingsRepository private constructor(ctx: Context) {
      * became the active one and the real one was purged. For the same reason the cycle
      * being edited is read here, under the lock, and not by the caller beforehand.
      *
-     * The list is healed first, like every other read of it, so the cycle taken for active
-     * here is the one whose spec is the mirrored one.
+     * The list is healed first ([cyclesConsistentWithActiveSpec]), as in
+     * [refreshCycleNames], so that the active cycle's spec is the mirrored one before both
+     * are written.
      */
     fun saveCycle(editingId: String?, spec: SourceSpec, peoplePreference: String, today: String): SavedCycle {
         synchronized(cyclesLock) {
@@ -372,8 +374,8 @@ class SettingsRepository private constructor(ctx: Context) {
      * The cycle list and the mirrored [sourceSpec] go out in ONE commit under [cyclesLock],
      * as in [applyBackup]. The active cycle's spec and [sourceSpec] must never be seen out
      * of step: [cyclesConsistentWithActiveSpec] would take that for damage and wrap the
-     * running spec in a new cycle. The list is healed first, like every other read of it,
-     * so that from there on the active cycle's spec is the mirrored one.
+     * running spec in a new cycle. The list is healed first, as in [saveCycle], so that the
+     * active cycle's spec is the mirrored one before both are written.
      */
     fun refreshCycleNames(albumNames: Map<String, String>, personNames: Map<String, String>, today: String): Boolean {
         synchronized(cyclesLock) {
