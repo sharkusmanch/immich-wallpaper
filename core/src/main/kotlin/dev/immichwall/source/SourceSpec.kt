@@ -129,8 +129,11 @@ sealed class SourceSpec {
      * [albumNames] and [personNames] map an id to its name now. An id that is not in the
      * map, or whose name there is blank, keeps the name it has, so a partial or empty list
      * never wipes one. People's names are stored in the order of their ids; only names that
-     * are stored are replaced (a list shorter than the ids stays that short). Returns this
-     * same object when nothing changes. What the spec selects ([identity]) never changes.
+     * are stored are replaced (a list shorter than the ids stays that short). So the two
+     * kinds differ where a name is missing: an album whose stored name is blank is given
+     * the server's, while a person whose id has no stored name at its position is not given
+     * one. Returns this same object when nothing changes. What the spec selects
+     * ([identity]) never changes.
      */
     fun withNames(albumNames: Map<String, String>, personNames: Map<String, String>): SourceSpec = when (this) {
         is People -> currentNames(names, ids, personNames).let { if (it == names) this else copy(names = it) }

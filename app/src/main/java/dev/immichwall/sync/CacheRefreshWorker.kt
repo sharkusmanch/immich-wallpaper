@@ -76,7 +76,8 @@ class CacheRefreshWorker(ctx: Context, params: WorkerParameters) : CoroutineWork
  * the active cycle fails the run (the workers retry); one on a prefetch cycle does not.
  *
  * Per-asset API errors are skipped; transport [IOException] propagates so callers can retry —
- * already-promoted photos are kept (dedup makes the retry cheap).
+ * already-promoted photos are kept (dedup makes the retry cheap). The names step alone lets
+ * nothing out: a name list that cannot be read is skipped, not a failed run.
  */
 class RefreshEngine(private val ctx: Context) {
 
@@ -260,8 +261,11 @@ class RefreshEngine(private val ctx: Context) {
      * server's, so a rename in Immich shows in the app after the next sync. Costs one album
      * list, and the people list only when a cycle names people.
      *
-     * Names are not worth a failed sync: an API error (a key without `person.read`, a 5xx)
-     * is logged and the stored names stay. A dead link throws as from any other call here.
+     * Names are not worth a failed sync, and this step cannot fail one: whatever a list
+     * request ends in (an HTTP error, a timeout, a body that does not parse),
+     * [CycleNames.fetch] returns no names for that list, the stored ones stay and the run
+     * goes on. A dead link is reported by the run's next request, as it was before this
+     * step existed.
      */
     private fun refreshNames(
         settings: SettingsRepository,
@@ -269,32 +273,31 @@ class RefreshEngine(private val ctx: Context) {
         today: LocalDate,
         isStopped: () -> Boolean,
     ) {
-        val needed = CycleNames.needed(settings.savedCycles)
-        val albumNames = if (needed.albums) {
-            namesOrNone("album") { client.getAlbums().associate { it.id to it.albumName } }
-        } else emptyMap()
-        val personNames = if (needed.people) {
-            namesOrNone("people") {
-                val names = HashMap<String, String>()
-                for (page in 1..NAME_PAGES_MAX) {
-                    val response = client.getPeople(page)
-                    response.people.forEach { names[it.id] = it.name }
-                    if (!response.hasNextPage || isStopped()) break
-                }
-                names
-            }
-        } else emptyMap()
-        if (albumNames.isEmpty() && personNames.isEmpty()) return
-        settings.refreshCycleNames(albumNames, personNames, today.toString())
+        val fetched = CycleNames.fetch(client, CycleNames.needed(settings.savedCycles), NAME_PAGES_MAX, isStopped)
+        logNameList("album", fetched.albums)
+        logNameList("people", fetched.people)
+        if (fetched.albumNames.isEmpty() && fetched.personNames.isEmpty()) return
+        settings.refreshCycleNames(fetched.albumNames, fetched.personNames, today.toString())
     }
 
-    private inline fun namesOrNone(what: String, fetch: () -> Map<String, String>): Map<String, String> =
-        try {
-            fetch()
-        } catch (e: ApiException) {
-            Logg.w(TAG, "names: $what list unavailable (HTTP ${e.code}); keeping the stored names")
-            emptyMap()
+    /**
+     * Says how a name list ended when it did not simply arrive. Only a status code or an
+     * exception's class name goes into the log, never its message: the client's message for
+     * a body it cannot parse quotes the body, which is album and people names.
+     */
+    private fun logNameList(list: String, outcome: CycleNames.ListOutcome) {
+        when (outcome) {
+            is CycleNames.ListOutcome.HttpError ->
+                Logg.w(TAG, "names: $list list unavailable (HTTP ${outcome.code}); keeping the stored names")
+            is CycleNames.ListOutcome.Failed ->
+                Logg.w(TAG, "names: $list list unavailable (${outcome.exception}); keeping the stored names")
+            is CycleNames.ListOutcome.Capped ->
+                Logg.w(TAG, "names: $list list still had more after ${outcome.pages} pages; names beyond them stay as stored")
+            CycleNames.ListOutcome.Skipped -> Logg.d(TAG, "names: $list list not requested, the album list had just failed")
+            CycleNames.ListOutcome.Stopped -> Logg.d(TAG, "names: $list list cut short, the run was stopped")
+            CycleNames.ListOutcome.NotNeeded, CycleNames.ListOutcome.Complete -> Unit
         }
+    }
 
     /**
      * Fetches up to [maxNew] new photos for one cycle and stamps them with [sourceKey].
