@@ -124,6 +124,27 @@ sealed class SourceSpec {
         is Location, Favorites, is Memories, EverythingRandom -> this
     }
 
+    /**
+     * This spec with each stored display name replaced by the server's current one:
+     * [albumNames] and [personNames] map an id to its name now. An id that is not in the
+     * map, or whose name there is blank, keeps the name it has, so a partial or empty list
+     * never wipes one. People's names are stored in the order of their ids; only names that
+     * are stored are replaced (a list shorter than the ids stays that short). Returns this
+     * same object when nothing changes. What the spec selects ([identity]) never changes.
+     */
+    fun withNames(albumNames: Map<String, String>, personNames: Map<String, String>): SourceSpec = when (this) {
+        is People -> currentNames(names, ids, personNames).let { if (it == names) this else copy(names = it) }
+        is Album -> currentName(albumName, albumId, albumNames).let { if (it == albumName) this else copy(albumName = it) }
+        is SmartQuery ->
+            currentNames(this.personNames, personIds, personNames).let { if (it == this.personNames) this else copy(personNames = it) }
+        is Custom -> {
+            val people = currentNames(this.personNames, personIds, personNames)
+            val album = currentName(albumName, albumId, albumNames)
+            if (people == this.personNames && album == albumName) this else copy(personNames = people, albumName = album)
+        }
+        is Location, Favorites, is Memories, EverythingRandom -> this
+    }
+
     /** Person ids whose faces should anchor the crop; empty when the mode has no people focus. */
     fun priorityPersonIds(): List<String> = when (this) {
         is People -> ids
@@ -186,6 +207,14 @@ sealed class SourceSpec {
         }
     }
 }
+
+/** The server's name for [id], or [stored] when it has none to offer (or there is no id to ask about). */
+private fun currentName(stored: String, id: String, names: Map<String, String>): String =
+    if (id.isBlank()) stored else names[id]?.takeIf { it.isNotBlank() } ?: stored
+
+/** [stored] names, each paired with the id at its position; a name with no id there is kept. */
+private fun currentNames(stored: List<String>, ids: List<String>, names: Map<String, String>): List<String> =
+    stored.mapIndexed { index, name -> ids.getOrNull(index)?.let { currentName(name, it, names) } ?: name }
 
 private fun sha256Hex(input: String): String =
     MessageDigest.getInstance("SHA-256")
