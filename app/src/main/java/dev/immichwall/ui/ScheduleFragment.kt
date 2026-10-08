@@ -21,7 +21,8 @@ import dev.immichwall.schedule.ScheduleEntryRow
 import dev.immichwall.schedule.ScheduleResolver
 import dev.immichwall.schedule.ScheduleText
 import dev.immichwall.settings.SettingsRepository
-import dev.immichwall.source.SavedCycle
+import dev.immichwall.source.CycleLabels
+import dev.immichwall.source.LabeledCycle
 import dev.immichwall.sync.SyncScheduler
 import dev.immichwall.wallpaper.RotationController
 import java.time.Instant
@@ -39,14 +40,15 @@ class ScheduleFragment : Fragment(R.layout.fragment_schedule) {
     private val dayFormat = DateTimeFormatter.ofPattern("MMM d")
     private val fullDayFormat = DateTimeFormatter.ofPattern("MMM d, yyyy")
 
-    private fun cycles(settings: SettingsRepository): List<SavedCycle> =
-        settings.cyclesConsistentWithActiveSpec().sortedBy { it.name.lowercase() }
+    /** The saved cycles in display order, each with the label it is listed under everywhere. */
+    private fun cycles(settings: SettingsRepository): List<LabeledCycle> =
+        CycleLabels.of(settings.cyclesConsistentWithActiveSpec())
 
     /**
      * Exactly the list the default-cycle dropdown is showing. A tapped position is looked
      * up here, not in a fresh read of the settings, which could have changed since.
      */
-    private var renderedCycles: List<SavedCycle> = emptyList()
+    private var renderedCycles: List<LabeledCycle> = emptyList()
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
@@ -62,7 +64,7 @@ class ScheduleFragment : Fragment(R.layout.fragment_schedule) {
             if (checked != schedule.enabled) {
                 // Switching it on is what commits the default the dropdown has been showing.
                 val defaultId =
-                    if (checked) defaultToShow(schedule, settings, cycles(settings).mapTo(HashSet()) { it.id })
+                    if (checked) defaultToShow(schedule, settings, cycles(settings).mapTo(HashSet()) { it.cycle.id })
                     else schedule.defaultCycleId
                 save(schedule.copy(enabled = checked, defaultCycleId = defaultId))
             }
@@ -70,7 +72,7 @@ class ScheduleFragment : Fragment(R.layout.fragment_schedule) {
         // Fires only for a tap on a menu item, never for render()'s setText.
         view.findViewById<MaterialAutoCompleteTextView>(R.id.schedule_default)
             .setOnItemClickListener { _, _, position, _ ->
-                val picked = renderedCycles.getOrNull(position)?.id ?: return@setOnItemClickListener
+                val picked = renderedCycles.getOrNull(position)?.cycle?.id ?: return@setOnItemClickListener
                 val schedule = SettingsRepository.get(requireContext()).schedule
                 if (picked != schedule.defaultCycleId) save(schedule.copy(defaultCycleId = picked))
             }
@@ -139,8 +141,8 @@ class ScheduleFragment : Fragment(R.layout.fragment_schedule) {
         val view = view ?: return
         val settings = SettingsRepository.get(requireContext())
         val cycles = cycles(settings)
-        val known = cycles.mapTo(HashSet()) { it.id }
-        val names = cycles.associate { it.id to it.name }
+        val known = cycles.mapTo(HashSet()) { it.cycle.id }
+        val names = cycles.associate { it.cycle.id to it.label }
 
         // Exactly what is stored: every row's buttons save a copy of it.
         val schedule = settings.schedule
@@ -150,7 +152,9 @@ class ScheduleFragment : Fragment(R.layout.fragment_schedule) {
 
         renderedCycles = cycles
         val defaultDropdown = view.findViewById<MaterialAutoCompleteTextView>(R.id.schedule_default)
-        defaultDropdown.setSimpleItems(cycles.map { it.name }.toTypedArray())
+        // Labels are unique, so the dropdown marks one row as chosen even when two cycles
+        // share a name; the text set below is the label of that row.
+        defaultDropdown.setSimpleItems(cycles.map { it.label }.toTypedArray())
         // filter = false: the text is a label, not a query, and must not narrow the list.
         defaultDropdown.setText(names[defaultToShow(schedule, settings, known)].orEmpty(), false)
 
@@ -228,7 +232,7 @@ class ScheduleFragment : Fragment(R.layout.fragment_schedule) {
         val view = view ?: return
         val settings = SettingsRepository.get(requireContext())
         val cycles = cycles(settings)
-        val names = cycles.associate { it.id to it.name }
+        val names = cycles.associate { it.cycle.id to it.label }
         // Answered with the default the dropdown shows, stored yet or not.
         val schedule = settings.schedule.let { it.copy(defaultCycleId = defaultToShow(it, settings, names.keys)) }
         val resolution = ScheduleResolver.resolve(schedule, date, names.keys)

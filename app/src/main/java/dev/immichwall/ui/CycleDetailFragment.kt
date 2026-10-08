@@ -11,6 +11,7 @@ import com.google.android.material.button.MaterialButtonToggleGroup
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import dev.immichwall.R
 import dev.immichwall.settings.SettingsRepository
+import dev.immichwall.source.CycleLabels
 import dev.immichwall.source.SavedCycle
 import dev.immichwall.source.SourceSpec
 import dev.immichwall.sync.SyncScheduler
@@ -42,7 +43,9 @@ class CycleDetailFragment : Fragment(R.layout.fragment_cycle_detail) {
         }
         val isActive = settings.activeCycleId == cycle.id
 
-        view.findViewById<TextView>(R.id.detail_name).text = cycle.name
+        // Titled as the row that led here: the label, which tells same-named cycles apart.
+        view.findViewById<TextView>(R.id.detail_name).text =
+            CycleLabels.of(settings.cyclesConsistentWithActiveSpec()).firstOrNull { it.cycle.id == cycleId }?.label ?: cycle.name
         view.findViewById<TextView>(R.id.detail_state).setText(
             if (isActive) R.string.cycle_active_label else R.string.detail_inactive
         )
