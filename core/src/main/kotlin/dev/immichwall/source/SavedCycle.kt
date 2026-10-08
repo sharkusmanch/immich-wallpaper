@@ -26,14 +26,28 @@ data class SavedCycle(
     val frozenKey: String = "",
 ) {
     /**
-     * The first part of this cycle's cache partition key (`CycleKeys.keyFor` appends the
-     * quality tag): [frozenKey] once there is one, else [SourceSpec.stableKey] exactly as
+     * The first part of this cycle's cache partition key ([cacheKey] appends the quality
+     * tag): [frozenKey] once there is one, else [SourceSpec.stableKey] exactly as
      * before cycles had a frozen key, so a key that is on a device does not move.
      *
      * A Memories cycle always follows [today]: its photos are per-day and it has no names.
      */
     fun keyBase(today: String): String =
         usableFrozenKey().takeIf { spec !is SourceSpec.Memories } ?: spec.stableKey(today)
+
+    /**
+     * This cycle's whole cache partition key: [keyBase], then `|q:` and [peoplePreference],
+     * or `|q:off` when the quality filter is off. Quality settings are part of the identity:
+     * photos ingested under other rules count as a different set.
+     *
+     * The string is on devices, stamped on every cached photo, and photos are shown, kept
+     * and purged by comparing it. It is composed here and nowhere else (`CycleKeys.keyFor`
+     * calls this), exactly as v1.1.0 composed it, and `CacheKeyPinTest` holds it to that.
+     */
+    fun cacheKey(qualityFilterEnabled: Boolean, today: String): String {
+        val qualityTag = if (qualityFilterEnabled) "q:$peoplePreference" else "q:off"
+        return "${keyBase(today)}|$qualityTag"
+    }
 
     /**
      * [frozenKey] if it has the shape [SourceSpec.stableKey] writes (64 lowercase hex
