@@ -24,8 +24,8 @@ android {
         applicationId = "io.github.sharkusmanch.immichwall"
         minSdk = 34
         targetSdk = 35
-        versionCode = 2
-        versionName = "1.1.0"
+        versionCode = 3
+        versionName = "1.1.1"
 
         buildConfigField("String", "DEV_SERVER_URL", "\"${devServerUrl}\"")
         buildConfigField("String", "DEV_API_KEY", "\"${devApiKey}\"")
