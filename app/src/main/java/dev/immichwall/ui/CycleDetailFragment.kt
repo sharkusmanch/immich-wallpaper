@@ -62,7 +62,7 @@ class CycleDetailFragment : Fragment(R.layout.fragment_cycle_detail) {
                 R.id.detail_people_require -> "require"
                 else -> "prefer"
             }
-            currentCycle()?.let { settings.upsertCycle(it.copy(peoplePreference = pref)) }
+            settings.setCyclePeoplePreference(cycleId, pref)
             // Active cycle: the changed quality tag re-rolls the cache on the next refresh.
             if (settings.activeCycleId == cycleId) {
                 SyncScheduler.kickManualRefresh(requireContext().applicationContext)

@@ -16,6 +16,7 @@ import dev.immichwall.schedule.ScheduleApplier
 import dev.immichwall.settings.SettingsRepository
 import dev.immichwall.source.AssetSourceResolver
 import dev.immichwall.source.CycleKeys
+import dev.immichwall.source.CycleNames
 import dev.immichwall.source.PhotoScorer
 import dev.immichwall.source.SavedCycle
 import dev.immichwall.source.SourceSpec
@@ -65,7 +66,8 @@ class CacheRefreshWorker(ctx: Context, params: WorkerParameters) : CoroutineWork
 /**
  * Shared refresh logic used by [InitialFillWorker] and [CacheRefreshWorker].
  *
- * One run: apply the schedule → probe base URL → work out which cycles need photos (the
+ * One run: apply the schedule → probe base URL → bring the saved cycles' album and people
+ * names up to date → work out which cycles need photos (the
  * active one, plus those the schedule calls for in the days ahead) → fill each from its
  * own source, splitting the run's budget → evict each to target → purge cycles the
  * schedule no longer needs → persist bookkeeping → health check → move the visible
@@ -122,8 +124,8 @@ class RefreshEngine(private val ctx: Context) {
         ScheduleApplier.applyIfDue(ctx)
 
         if (settings.sourceSpec == null) return SUMMARY_NO_SOURCE
-        val cycles = settings.cyclesConsistentWithActiveSpec()
-        val active = cycles.firstOrNull { it.id == settings.activeCycleId } ?: return SUMMARY_NO_SOURCE
+        // Without an active cycle there is nothing to sync, and no reason to reach the server.
+        if (settings.cyclesConsistentWithActiveSpec().none { it.id == settings.activeCycleId }) return SUMMARY_NO_SOURCE
 
         val selector = BaseUrlSelector(settings)
         if (selector.probeAndSelect() == null) {
@@ -135,8 +137,15 @@ class RefreshEngine(private val ctx: Context) {
         val client = ImmichApiClient({ selector.currentBaseUrl() }, { settings.apiKey })
         val resolver = AssetSourceResolver(client)
 
-        // The active cycle first, then the ones the schedule calls for in the days ahead.
         val today = LocalDate.now()
+        refreshNames(settings, client, today, isStopped)
+
+        // Read only now: the cycles this run works with are the ones with the names as
+        // just refreshed. Their keys are the same either way.
+        val cycles = settings.cyclesConsistentWithActiveSpec()
+        val active = cycles.firstOrNull { it.id == settings.activeCycleId } ?: return SUMMARY_NO_SOURCE
+
+        // The active cycle first, then the ones the schedule calls for in the days ahead.
         val byId = cycles.associateBy { it.id }
         val targets = (listOf(active) + ScheduleApplier.plan(settings).retainedCycleIds.mapNotNull(byId::get))
             .distinctBy { it.id }
@@ -245,6 +254,47 @@ class RefreshEngine(private val ctx: Context) {
 
         return summary
     }
+
+    /**
+     * Brings the album and people names stored in the saved cycles up to date with the
+     * server's, so a rename in Immich shows in the app after the next sync. Costs one album
+     * list, and the people list only when a cycle names people.
+     *
+     * Names are not worth a failed sync: an API error (a key without `person.read`, a 5xx)
+     * is logged and the stored names stay. A dead link throws as from any other call here.
+     */
+    private fun refreshNames(
+        settings: SettingsRepository,
+        client: ImmichApiClient,
+        today: LocalDate,
+        isStopped: () -> Boolean,
+    ) {
+        val needed = CycleNames.needed(settings.savedCycles)
+        val albumNames = if (needed.albums) {
+            namesOrNone("album") { client.getAlbums().associate { it.id to it.albumName } }
+        } else emptyMap()
+        val personNames = if (needed.people) {
+            namesOrNone("people") {
+                val names = HashMap<String, String>()
+                for (page in 1..NAME_PAGES_MAX) {
+                    val response = client.getPeople(page)
+                    response.people.forEach { names[it.id] = it.name }
+                    if (!response.hasNextPage || isStopped()) break
+                }
+                names
+            }
+        } else emptyMap()
+        if (albumNames.isEmpty() && personNames.isEmpty()) return
+        settings.refreshCycleNames(albumNames, personNames, today.toString())
+    }
+
+    private inline fun namesOrNone(what: String, fetch: () -> Map<String, String>): Map<String, String> =
+        try {
+            fetch()
+        } catch (e: ApiException) {
+            Logg.w(TAG, "names: $what list unavailable (HTTP ${e.code}); keeping the stored names")
+            emptyMap()
+        }
 
     /**
      * Fetches up to [maxNew] new photos for one cycle and stamps them with [sourceKey].
@@ -477,6 +527,9 @@ class RefreshEngine(private val ctx: Context) {
         private const val FALLBACK_CROP_W = 1280
         private const val FALLBACK_CROP_H = 2856
         private const val STAGING_MAX_AGE_MS = 6L * 60 * 60 * 1000
+
+        /** People are listed 500 to a page; a server that never stops saying "more" is cut off here. */
+        private const val NAME_PAGES_MAX = 20
 
         /** Serializes [refresh] across every worker in the process. */
         private val runLock = ReentrantLock()

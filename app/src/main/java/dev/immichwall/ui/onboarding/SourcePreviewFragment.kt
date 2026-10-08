@@ -141,8 +141,13 @@ class SourcePreviewFragment : Fragment(R.layout.fragment_source_preview) {
         fun persistAsCycle(): dev.immichwall.source.SavedCycle {
             // Editing an existing cycle keeps its id (and thus its slot + active status).
             val id = vm.editingCycleId ?: java.util.UUID.randomUUID().toString()
+            // An edit that still selects the same photos keeps the key they are cached
+            // under, whatever the names say now; any other edit starts a new set.
+            val previous = settings.savedCycles.firstOrNull { it.id == vm.editingCycleId }
             val cycle = dev.immichwall.source.SavedCycle(
-                id, spec.summaryLabel(), spec, vm.cyclePeoplePreference)
+                id, spec.summaryLabel(), spec, vm.cyclePeoplePreference,
+                dev.immichwall.source.frozenKeyAfterEdit(previous, spec, java.time.LocalDate.now().toString()),
+            )
             settings.upsertCycle(cycle)
             // An edit of the ACTIVE cycle must propagate to the running spec.
             if (settings.activeCycleId == id) settings.activateCycle(id)

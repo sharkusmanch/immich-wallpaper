@@ -14,6 +14,7 @@ import dev.immichwall.backup.BackupServer
 import dev.immichwall.crop.CropTarget
 import dev.immichwall.schedule.Schedule
 import dev.immichwall.schedule.ScheduleOverride
+import dev.immichwall.source.CycleNames
 import dev.immichwall.source.SavedCycle
 import dev.immichwall.source.SourceSpec
 import dev.immichwall.util.Logg
@@ -258,11 +259,35 @@ class SettingsRepository private constructor(ctx: Context) {
         get() = plain.getString(KEY_ACTIVE_CYCLE_ID, "") ?: ""
         set(value) { plain.edit().putString(KEY_ACTIVE_CYCLE_ID, value).commit() }
 
-    /** Saves (or replaces by id) a cycle without touching the active configuration. */
+    /**
+     * Saves (or replaces by id) a cycle without touching the active configuration. A
+     * replaced cycle keeps its place in the stored list: that order decides which of two
+     * cycles with the same name is listed first ([dev.immichwall.source.CycleLabels]), and
+     * an edit must not swap their labels.
+     */
     fun upsertCycle(cycle: SavedCycle) {
         synchronized(cyclesLock) {
             Logg.d(TAG, "cycles: upsert '${cycle.name}'")
-            persistCyclesLocked(savedCyclesLocked().filter { it.id != cycle.id } + cycle)
+            val cycles = savedCyclesLocked()
+            persistCyclesLocked(
+                if (cycles.any { it.id == cycle.id }) cycles.map { if (it.id == cycle.id) cycle else it }
+                else cycles + cycle
+            )
+        }
+    }
+
+    /**
+     * Stores [preference] on the cycle [cycleId]; false when there is no such cycle. The
+     * cycle is read and written back under the cycles lock: a sync can bring its names up
+     * to date at any moment ([refreshCycleNames]), and writing back a copy read before that
+     * would undo it in the list while the mirrored [sourceSpec] kept the new names.
+     */
+    fun setCyclePeoplePreference(cycleId: String, preference: String): Boolean {
+        synchronized(cyclesLock) {
+            val cycles = savedCyclesLocked()
+            if (cycles.none { it.id == cycleId }) return false
+            persistCyclesLocked(cycles.map { if (it.id == cycleId) it.copy(peoplePreference = preference) else it })
+            return true
         }
     }
 
@@ -312,6 +337,39 @@ class SettingsRepository private constructor(ctx: Context) {
             persistCyclesLocked(cycles + wrapped)
             activeCycleId = wrapped.id
             return cycles + wrapped
+        }
+    }
+
+    /**
+     * Brings the album and people names stored in the saved cycles up to date with the
+     * server's ([CycleNames.refreshed]: [albumNames] and [personNames] map an id to its
+     * current name; [today] is `YYYY-MM-DD`). Returns whether anything changed; nothing is
+     * written when nothing did. No cycle's cache key changes: a cycle whose names change
+     * keeps the key it had as its [SavedCycle.frozenKey].
+     *
+     * The cycle list and the mirrored [sourceSpec] go out in ONE commit under [cyclesLock],
+     * as in [applyBackup]. The active cycle's spec and [sourceSpec] must never be seen out
+     * of step: [cyclesConsistentWithActiveSpec] would take that for damage and wrap the
+     * running spec in a new cycle. The list is healed first, like every other read of it,
+     * so that from there on the active cycle's spec is the mirrored one.
+     */
+    fun refreshCycleNames(albumNames: Map<String, String>, personNames: Map<String, String>, today: String): Boolean {
+        synchronized(cyclesLock) {
+            val cycles = cyclesConsistentWithActiveSpec()
+            val refreshed = CycleNames.refreshed(cycles, albumNames, personNames, today) ?: return false
+            val json = ApiJson.json
+            val editor = plain.edit().putString(KEY_SAVED_CYCLES, json.encodeToString(
+                kotlinx.serialization.builtins.ListSerializer(SavedCycle.serializer()), refreshed))
+            val running = sourceSpec
+            val active = refreshed.firstOrNull { it.id == activeCycleId }
+            if (running != null && active != null && active.spec != running) {
+                editor.putString(KEY_SOURCE_SPEC, json.encodeToString(SourceSpec.serializer(), active.spec))
+            }
+            // A failed disk write still leaves the new values in memory for this process, and
+            // the next sync finds the old ones on disk and does the same again.
+            if (!editor.commit()) Logg.w(TAG, "cycles: refreshed names not written to disk")
+            Logg.d(TAG, "cycles: names brought up to date from the server")
+            return true
         }
     }
 
