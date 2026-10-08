@@ -111,6 +111,19 @@ sealed class SourceSpec {
         return sha256Hex(material)
     }
 
+    /**
+     * This spec with every display name blanked: what it selects, without what it is called.
+     * Two specs select the same photos exactly when their identities are equal. Names are
+     * copies of the server's and change when an album or a person is renamed there.
+     */
+    fun identity(): SourceSpec = when (this) {
+        is People -> copy(names = emptyList())
+        is Album -> copy(albumName = "")
+        is SmartQuery -> copy(personNames = emptyList())
+        is Custom -> copy(personNames = emptyList(), albumName = "")
+        is Location, Favorites, is Memories, EverythingRandom -> this
+    }
+
     /** Person ids whose faces should anchor the crop; empty when the mode has no people focus. */
     fun priorityPersonIds(): List<String> = when (this) {
         is People -> ids
