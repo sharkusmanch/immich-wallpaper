@@ -157,6 +157,14 @@ Minimal APK: hardcoded-photo engine + screen-off advance → sideload → verify
   is empty, from the cycle already on screen, never from one that is only prefetched). Each
   sync fills the active cycle and prefetches the ones in the retention window, then deletes
   photos of cycles outside it once the active cycle has a photo.
+- **Names and cache keys.** A cycle stores the album and people names it was built with.
+  Every sync fetches the current ones (the album list; the people list only when a cycle
+  names people) and writes them into the saved cycles, list and mirrored active spec in one
+  commit; a failed name fetch never fails the sync. A cycle's key used to be the hash of its
+  whole spec, names included, so before a cycle's names first change that hash is frozen in
+  the cycle (`SavedCycle.frozenKey`) and stays its key for as long as it selects the same
+  photos: no cache key moves, and a rename costs no re-download. Wherever cycles are listed
+  they are ordered and labelled by `CycleLabels`, which numbers cycles that share a name.
 - **Foldables.** Photos are cropped to the union box of every surface shape the engine has
   seen, and each cache entry records where its faces are; the engine slides the photo so
   they stay in view on whichever panel is active.

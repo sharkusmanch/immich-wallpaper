@@ -14,11 +14,15 @@ object CycleKeys {
     /**
      * Quality settings are part of the identity: photos ingested under other rules count
      * as a different set. [today] only matters for Memories, whose content is per-day.
+     * The source's part is [SavedCycle.keyBase]: the spec's hash as it always was, until the
+     * cycle's display names are first brought up to date, and from then on that same value,
+     * kept in the cycle. A renamed album therefore keeps its cached photos.
+     *
+     * The string itself is put together by [SavedCycle.cacheKey], in `:core`, where a test
+     * pins it to what v1.1.0 wrote.
      */
-    fun keyFor(cycle: SavedCycle, qualityFilterEnabled: Boolean, today: LocalDate): String {
-        val qualityTag = if (qualityFilterEnabled) "q:${cycle.peoplePreference}" else "q:off"
-        return "${cycle.spec.stableKey(today.toString())}|$qualityTag"
-    }
+    fun keyFor(cycle: SavedCycle, qualityFilterEnabled: Boolean, today: LocalDate): String =
+        cycle.cacheKey(qualityFilterEnabled, today.toString())
 
     /** Key of the active cycle, or null when none is configured yet. */
     fun activeKey(settings: SettingsRepository, today: LocalDate = LocalDate.now()): String? {

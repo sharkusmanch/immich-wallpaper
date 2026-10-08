@@ -27,6 +27,8 @@ import dev.immichwall.schedule.ScheduleApplier
 import dev.immichwall.schedule.ScheduleText
 import dev.immichwall.settings.SettingsRepository
 import dev.immichwall.source.CycleKeys
+import dev.immichwall.source.CycleLabels
+import dev.immichwall.source.LabeledCycle
 import dev.immichwall.source.SavedCycle
 import dev.immichwall.sync.SyncScheduler
 import dev.immichwall.ui.onboarding.LiveWallpaperLauncher
@@ -172,9 +174,9 @@ class StatusFragment : Fragment(R.layout.fragment_status) {
         // UI-driven check must not fire a heads-up notification mid-use.
         val issues = runCatching { HealthChecker.check(ctx, notify = false) }.getOrDefault(emptyList())
 
-        val cycles = runCatching { settings.cyclesConsistentWithActiveSpec() }
-            .getOrDefault(emptyList())
-            .sortedBy { it.name.lowercase() }
+        val cycles = CycleLabels.of(
+            runCatching { settings.cyclesConsistentWithActiveSpec() }.getOrDefault(emptyList())
+        )
         val activeId = settings.activeCycleId
 
         var scheduleText = runCatching { ScheduleText.summary(ctx, settings) }.getOrDefault("")
@@ -231,8 +233,11 @@ class StatusFragment : Fragment(R.layout.fragment_status) {
         renderCycles(view, state.cycles, state.activeCycleId)
     }
 
-    /** One tappable card per saved cycle: radio = active, tap = activate, trash = delete. */
-    private fun renderCycles(view: View, cycles: List<SavedCycle>, activeId: String) {
+    /**
+     * One tappable card per saved cycle: radio = active, tap = activate, trash = delete.
+     * Each is shown under its [LabeledCycle.label], so two cycles of one name can be told apart.
+     */
+    private fun renderCycles(view: View, cycles: List<LabeledCycle>, activeId: String) {
         val container = view.findViewById<LinearLayout>(R.id.status_cycles)
         container.removeAllViews()
         if (cycles.isEmpty()) {
@@ -243,10 +248,10 @@ class StatusFragment : Fragment(R.layout.fragment_status) {
             return
         }
         val inflater = LayoutInflater.from(requireContext())
-        for (cycle in cycles) {
+        for ((cycle, label) in cycles) {
             val row = inflater.inflate(R.layout.item_cycle, container, false)
             val isActive = cycle.id == activeId
-            row.findViewById<TextView>(R.id.cycle_name).text = cycle.name
+            row.findViewById<TextView>(R.id.cycle_name).text = label
             row.findViewById<RadioButton>(R.id.cycle_active).isChecked = isActive
             val stateText = row.findViewById<TextView>(R.id.cycle_state)
             stateText.visibility = if (isActive) View.VISIBLE else View.GONE
@@ -347,7 +352,7 @@ class StatusFragment : Fragment(R.layout.fragment_status) {
         val cacheLine: String,
         val syncLine: String,
         val issues: List<HealthIssue>,
-        val cycles: List<SavedCycle>,
+        val cycles: List<LabeledCycle>,
         val activeCycleId: String,
         val scheduleText: String,
         val overrideActive: Boolean,

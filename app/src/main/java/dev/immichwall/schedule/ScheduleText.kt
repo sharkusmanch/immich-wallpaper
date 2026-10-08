@@ -4,6 +4,7 @@ import android.content.Context
 import dev.immichwall.BuildConfig
 import dev.immichwall.R
 import dev.immichwall.settings.SettingsRepository
+import dev.immichwall.source.CycleLabels
 import java.time.format.DateTimeFormatter
 
 /** Human-readable schedule state, shared by the status card and the schedule screen. */
@@ -29,7 +30,8 @@ object ScheduleText {
         if (!schedule.enabled) return ctx.getString(R.string.schedule_summary_off)
         val cycles = settings.cyclesConsistentWithActiveSpec()
         val known = cycles.mapTo(HashSet()) { it.id }
-        val names = cycles.associate { it.id to it.name }
+        // Labels, not bare names: the same ones the cycle list and the schedule screen show.
+        val names = CycleLabels.of(cycles).associate { it.cycle.id to it.label }
         val today = ScheduleApplier.today(settings)
         val plan = ScheduleApplier.plan(settings, today)
 
@@ -56,7 +58,7 @@ object ScheduleText {
     /**
      * What to call the entry that won: its name, or its cycle's name when it was left
      * unnamed (so the label follows the cycle if that is changed later), or "default" when
-     * no entry matched.
+     * no entry matched. [cycleNames] maps a cycle id to its [CycleLabels] label.
      */
     fun entryLabel(
         ctx: Context,

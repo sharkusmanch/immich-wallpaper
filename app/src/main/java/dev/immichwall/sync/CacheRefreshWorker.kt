@@ -16,6 +16,7 @@ import dev.immichwall.schedule.ScheduleApplier
 import dev.immichwall.settings.SettingsRepository
 import dev.immichwall.source.AssetSourceResolver
 import dev.immichwall.source.CycleKeys
+import dev.immichwall.source.CycleNames
 import dev.immichwall.source.PhotoScorer
 import dev.immichwall.source.SavedCycle
 import dev.immichwall.source.SourceSpec
@@ -65,7 +66,8 @@ class CacheRefreshWorker(ctx: Context, params: WorkerParameters) : CoroutineWork
 /**
  * Shared refresh logic used by [InitialFillWorker] and [CacheRefreshWorker].
  *
- * One run: apply the schedule → probe base URL → work out which cycles need photos (the
+ * One run: apply the schedule → probe base URL → bring the saved cycles' album and people
+ * names up to date → work out which cycles need photos (the
  * active one, plus those the schedule calls for in the days ahead) → fill each from its
  * own source, splitting the run's budget → evict each to target → purge cycles the
  * schedule no longer needs → persist bookkeeping → health check → move the visible
@@ -74,7 +76,9 @@ class CacheRefreshWorker(ctx: Context, params: WorkerParameters) : CoroutineWork
  * the active cycle fails the run (the workers retry); one on a prefetch cycle does not.
  *
  * Per-asset API errors are skipped; transport [IOException] propagates so callers can retry —
- * already-promoted photos are kept (dedup makes the retry cheap).
+ * already-promoted photos are kept (dedup makes the retry cheap). The names step alone lets
+ * no I/O failure out: a name list that cannot be read is skipped, not a failed run. Any
+ * other exception from it is a bug and propagates like one.
  */
 class RefreshEngine(private val ctx: Context) {
 
@@ -122,8 +126,8 @@ class RefreshEngine(private val ctx: Context) {
         ScheduleApplier.applyIfDue(ctx)
 
         if (settings.sourceSpec == null) return SUMMARY_NO_SOURCE
-        val cycles = settings.cyclesConsistentWithActiveSpec()
-        val active = cycles.firstOrNull { it.id == settings.activeCycleId } ?: return SUMMARY_NO_SOURCE
+        // Without an active cycle there is nothing to sync, and no reason to reach the server.
+        if (settings.cyclesConsistentWithActiveSpec().none { it.id == settings.activeCycleId }) return SUMMARY_NO_SOURCE
 
         val selector = BaseUrlSelector(settings)
         if (selector.probeAndSelect() == null) {
@@ -135,8 +139,15 @@ class RefreshEngine(private val ctx: Context) {
         val client = ImmichApiClient({ selector.currentBaseUrl() }, { settings.apiKey })
         val resolver = AssetSourceResolver(client)
 
-        // The active cycle first, then the ones the schedule calls for in the days ahead.
         val today = LocalDate.now()
+        refreshNames(settings, client, today, isStopped)
+
+        // Read only now: the cycles this run works with are the ones with the names as
+        // just refreshed. Their keys are the same either way.
+        val cycles = settings.cyclesConsistentWithActiveSpec()
+        val active = cycles.firstOrNull { it.id == settings.activeCycleId } ?: return SUMMARY_NO_SOURCE
+
+        // The active cycle first, then the ones the schedule calls for in the days ahead.
         val byId = cycles.associateBy { it.id }
         val targets = (listOf(active) + ScheduleApplier.plan(settings).retainedCycleIds.mapNotNull(byId::get))
             .distinctBy { it.id }
@@ -244,6 +255,49 @@ class RefreshEngine(private val ctx: Context) {
         }
 
         return summary
+    }
+
+    /**
+     * Brings the album and people names stored in the saved cycles up to date with the
+     * server's, so a rename in Immich shows in the app after the next sync. Costs one album
+     * list, and the people list only when a cycle names people.
+     *
+     * Names are not worth a failed sync, and this step cannot fail one: whatever a list
+     * request ends in (an HTTP error, a timeout, a body that does not parse),
+     * [CycleNames.fetch] returns no names for that list, the stored ones stay and the run
+     * goes on. A dead link is reported by the run's next request, as it was before this
+     * step existed.
+     */
+    private fun refreshNames(
+        settings: SettingsRepository,
+        client: ImmichApiClient,
+        today: LocalDate,
+        isStopped: () -> Boolean,
+    ) {
+        val fetched = CycleNames.fetch(client, CycleNames.needed(settings.savedCycles), NAME_PAGES_MAX, isStopped)
+        logNameList("album", fetched.albums)
+        logNameList("people", fetched.people)
+        if (fetched.albumNames.isEmpty() && fetched.personNames.isEmpty()) return
+        settings.refreshCycleNames(fetched.albumNames, fetched.personNames, today.toString())
+    }
+
+    /**
+     * Says how a name list ended when it did not simply arrive. Only a status code or an
+     * exception's class name goes into the log, never its message: the client's message for
+     * a body it cannot parse quotes the body, which is album and people names.
+     */
+    private fun logNameList(list: String, outcome: CycleNames.ListOutcome) {
+        when (outcome) {
+            is CycleNames.ListOutcome.HttpError ->
+                Logg.w(TAG, "names: $list list unavailable (HTTP ${outcome.code}); keeping the stored names")
+            is CycleNames.ListOutcome.Failed ->
+                Logg.w(TAG, "names: $list list unavailable (${outcome.exception}); keeping the stored names")
+            is CycleNames.ListOutcome.Capped ->
+                Logg.w(TAG, "names: $list list still had more after ${outcome.pages} pages; names beyond them stay as stored")
+            CycleNames.ListOutcome.Skipped -> Logg.d(TAG, "names: $list list not requested, the album list had just failed")
+            CycleNames.ListOutcome.Stopped -> Logg.d(TAG, "names: $list list cut short, the run was stopped")
+            CycleNames.ListOutcome.NotNeeded, CycleNames.ListOutcome.Complete -> Unit
+        }
     }
 
     /**
@@ -477,6 +531,9 @@ class RefreshEngine(private val ctx: Context) {
         private const val FALLBACK_CROP_W = 1280
         private const val FALLBACK_CROP_H = 2856
         private const val STAGING_MAX_AGE_MS = 6L * 60 * 60 * 1000
+
+        /** People are listed 500 to a page; a server that never stops saying "more" is cut off here. */
+        private const val NAME_PAGES_MAX = 20
 
         /** Serializes [refresh] across every worker in the process. */
         private val runLock = ReentrantLock()

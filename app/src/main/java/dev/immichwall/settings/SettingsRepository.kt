@@ -14,6 +14,8 @@ import dev.immichwall.backup.BackupServer
 import dev.immichwall.crop.CropTarget
 import dev.immichwall.schedule.Schedule
 import dev.immichwall.schedule.ScheduleOverride
+import dev.immichwall.source.CycleNames
+import dev.immichwall.source.CycleSave
 import dev.immichwall.source.SavedCycle
 import dev.immichwall.source.SourceSpec
 import dev.immichwall.util.Logg
@@ -217,7 +219,8 @@ class SettingsRepository private constructor(ctx: Context) {
 
     /**
      * Saved wallpaper cycles. The ACTIVE cycle's spec is mirrored into [sourceSpec]
-     * (which the sync pipeline reads) by [activateCycle]; the rest are inert drafts.
+     * (which the sync pipeline reads) by [activateCycle], [saveCycle], [refreshCycleNames]
+     * and [applyBackup]; the rest are inert drafts.
      * Reading migrates a pre-cycles install: the existing [sourceSpec] becomes the
      * first (active) saved cycle.
      */
@@ -258,11 +261,57 @@ class SettingsRepository private constructor(ctx: Context) {
         get() = plain.getString(KEY_ACTIVE_CYCLE_ID, "") ?: ""
         set(value) { plain.edit().putString(KEY_ACTIVE_CYCLE_ID, value).commit() }
 
-    /** Saves (or replaces by id) a cycle without touching the active configuration. */
-    fun upsertCycle(cycle: SavedCycle) {
+    /**
+     * Saves the wizard's [spec] and [peoplePreference] as a cycle and returns it: over the
+     * cycle [editingId] when the wizard was editing one, else as a new cycle
+     * ([CycleSave.of]; [today] is `YYYY-MM-DD`). Saving does not make a cycle active; a
+     * cycle that already is stays so, and the running [sourceSpec] follows its new spec.
+     *
+     * The whole save is ONE step under [cyclesLock], written in ONE commit, as in
+     * [refreshCycleNames]. Storing the list first and mirroring the active cycle's spec
+     * afterwards left a moment in which the two differed, and a
+     * [cyclesConsistentWithActiveSpec] on another thread (the wallpaper at a screen event,
+     * a sync) took that for damage and wrapped the running spec in a new cycle. That cycle
+     * has no frozen key, so its cache key is the hash of its spec, which for a cycle whose
+     * names were ever refreshed is not the key its photos are cached under: an empty set
+     * became the active one and the real one was purged. For the same reason the cycle
+     * being edited is read here, under the lock, and not by the caller beforehand.
+     *
+     * The list is healed first ([cyclesConsistentWithActiveSpec]), as in
+     * [refreshCycleNames], so that the active cycle's spec is the mirrored one before both
+     * are written.
+     */
+    fun saveCycle(editingId: String?, spec: SourceSpec, peoplePreference: String, today: String): SavedCycle {
         synchronized(cyclesLock) {
-            Logg.d(TAG, "cycles: upsert '${cycle.name}'")
-            persistCyclesLocked(savedCyclesLocked().filter { it.id != cycle.id } + cycle)
+            val cycles = cyclesConsistentWithActiveSpec()
+            val save = CycleSave.of(cycles, editingId, java.util.UUID.randomUUID().toString(), spec, peoplePreference, today)
+            val json = ApiJson.json
+            val editor = plain.edit().putString(KEY_SAVED_CYCLES, json.encodeToString(
+                kotlinx.serialization.builtins.ListSerializer(SavedCycle.serializer()), save.cycles))
+            val active = save.cycle.id == activeCycleId
+            if (active) editor.putString(KEY_SOURCE_SPEC, json.encodeToString(SourceSpec.serializer(), save.cycle.spec))
+            // As in refreshCycleNames: a failed disk write still leaves both values, in step,
+            // in memory for this process.
+            if (!editor.commit()) Logg.w(TAG, "cycles: saved cycle not written to disk")
+            // No name here: a cycle is named after its album or its people.
+            val kind = if (save.cycles.size == cycles.size) "an edit" else "new"
+            Logg.d(TAG, "cycles: saved a cycle ($kind${if (active) ", the active one" else ""})")
+            return save.cycle
+        }
+    }
+
+    /**
+     * Stores [preference] on the cycle [cycleId]; false when there is no such cycle. The
+     * cycle is read and written back under the cycles lock: a sync can bring its names up
+     * to date at any moment ([refreshCycleNames]), and writing back a copy read before that
+     * would undo it in the list while the mirrored [sourceSpec] kept the new names.
+     */
+    fun setCyclePeoplePreference(cycleId: String, preference: String): Boolean {
+        synchronized(cyclesLock) {
+            val cycles = savedCyclesLocked()
+            if (cycles.none { it.id == cycleId }) return false
+            persistCyclesLocked(cycles.map { if (it.id == cycleId) it.copy(peoplePreference = preference) else it })
+            return true
         }
     }
 
@@ -312,6 +361,39 @@ class SettingsRepository private constructor(ctx: Context) {
             persistCyclesLocked(cycles + wrapped)
             activeCycleId = wrapped.id
             return cycles + wrapped
+        }
+    }
+
+    /**
+     * Brings the album and people names stored in the saved cycles up to date with the
+     * server's ([CycleNames.refreshed]: [albumNames] and [personNames] map an id to its
+     * current name; [today] is `YYYY-MM-DD`). Returns whether anything changed; nothing is
+     * written when nothing did. No cycle's cache key changes: a cycle whose names change
+     * keeps the key it had as its [SavedCycle.frozenKey].
+     *
+     * The cycle list and the mirrored [sourceSpec] go out in ONE commit under [cyclesLock],
+     * as in [applyBackup]. The active cycle's spec and [sourceSpec] must never be seen out
+     * of step: [cyclesConsistentWithActiveSpec] would take that for damage and wrap the
+     * running spec in a new cycle. The list is healed first, as in [saveCycle], so that the
+     * active cycle's spec is the mirrored one before both are written.
+     */
+    fun refreshCycleNames(albumNames: Map<String, String>, personNames: Map<String, String>, today: String): Boolean {
+        synchronized(cyclesLock) {
+            val cycles = cyclesConsistentWithActiveSpec()
+            val refreshed = CycleNames.refreshed(cycles, albumNames, personNames, today) ?: return false
+            val json = ApiJson.json
+            val editor = plain.edit().putString(KEY_SAVED_CYCLES, json.encodeToString(
+                kotlinx.serialization.builtins.ListSerializer(SavedCycle.serializer()), refreshed))
+            val running = sourceSpec
+            val active = refreshed.firstOrNull { it.id == activeCycleId }
+            if (running != null && active != null && active.spec != running) {
+                editor.putString(KEY_SOURCE_SPEC, json.encodeToString(SourceSpec.serializer(), active.spec))
+            }
+            // A failed disk write still leaves the new values in memory for this process, and
+            // the next sync finds the old ones on disk and does the same again.
+            if (!editor.commit()) Logg.w(TAG, "cycles: refreshed names not written to disk")
+            Logg.d(TAG, "cycles: names brought up to date from the server")
+            return true
         }
     }
 

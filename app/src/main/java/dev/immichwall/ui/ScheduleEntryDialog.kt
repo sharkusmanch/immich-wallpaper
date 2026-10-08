@@ -15,7 +15,8 @@ import dev.immichwall.schedule.ScheduleApplier
 import dev.immichwall.schedule.ScheduleEntry
 import dev.immichwall.schedule.ScheduleResolver
 import dev.immichwall.settings.SettingsRepository
-import dev.immichwall.source.SavedCycle
+import dev.immichwall.source.CycleLabels
+import dev.immichwall.source.LabeledCycle
 import java.time.Month
 import java.time.MonthDay
 import java.time.format.TextStyle
@@ -38,8 +39,9 @@ class ScheduleEntryDialog : DialogFragment() {
      */
     private var cycleId: String? = null
 
-    private fun cycles(): List<SavedCycle> =
-        SettingsRepository.get(requireContext()).cyclesConsistentWithActiveSpec().sortedBy { it.name.lowercase() }
+    /** The saved cycles in display order, each with the label it is listed under everywhere. */
+    private fun cycles(): List<LabeledCycle> =
+        CycleLabels.of(SettingsRepository.get(requireContext()).cyclesConsistentWithActiveSpec())
 
     override fun onCreateDialog(savedInstanceState: Bundle?): Dialog {
         val settings = SettingsRepository.get(requireContext())
@@ -62,10 +64,10 @@ class ScheduleEntryDialog : DialogFragment() {
         cycleId = when {
             savedInstanceState != null -> savedInstanceState.getString(STATE_CYCLE_ID)
             // A new entry starts on the first cycle.
-            existing == null -> cycles.firstOrNull()?.id
+            existing == null -> cycles.firstOrNull()?.cycle?.id
             // An entry whose cycle was deleted starts with none chosen, so that Save cannot
             // quietly re-point it at whichever cycle happens to be first.
-            else -> existing.cycleId.takeIf { id -> cycles.any { it.id == id } }
+            else -> existing.cycleId.takeIf { id -> cycles.any { it.cycle.id == id } }
         }
 
         fun bind(id: Int, items: List<String>, selected: Int, onPick: (Int) -> Unit) {
@@ -78,8 +80,10 @@ class ScheduleEntryDialog : DialogFragment() {
 
         content.findViewById<TextInputEditText>(R.id.entry_edit_name).setText(existing?.name.orEmpty())
         // `cycles` here is the very list the dropdown shows, so its position is safe to use.
-        bind(R.id.entry_edit_cycle, cycles.map { it.name }, cycles.indexOfFirst { it.id == cycleId }) { position ->
-            cycleId = cycles[position].id
+        // The dropdown marks every row whose text is the field's text as chosen: the rows
+        // are labels, which no two cycles share, and not names, which two cycles can.
+        bind(R.id.entry_edit_cycle, cycles.map { it.label }, cycles.indexOfFirst { it.cycle.id == cycleId }) { position ->
+            cycleId = cycles[position].cycle.id
         }
         bind(R.id.entry_edit_start_month, months, dates[SLOT_START_MONTH]) { dates[SLOT_START_MONTH] = it }
         bind(R.id.entry_edit_start_day, days, dates[SLOT_START_DAY]) { dates[SLOT_START_DAY] = it }
@@ -119,7 +123,7 @@ class ScheduleEntryDialog : DialogFragment() {
      * is chosen or a date such as Feb 30 was picked.
      */
     private fun save(dialog: AlertDialog): Boolean {
-        val cycle = cycles().firstOrNull { it.id == cycleId }
+        val cycle = cycles().firstOrNull { it.cycle.id == cycleId }?.cycle
         if (cycle == null) {
             Toast.makeText(requireContext(), R.string.schedule_entry_pick_cycle, Toast.LENGTH_SHORT).show()
             return false
